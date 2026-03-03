@@ -1,17 +1,31 @@
 package lesson5
 
-import de.fabmax.kool.KoolApplication
-import de.fabmax.kool.addScene
-import de.fabmax.kool.math.Vec3f
-import de.fabmax.kool.math.deg
-import de.fabmax.kool.scene.*
-import de.fabmax.kool.modules.ksl.KslPbrShader
-import de.fabmax.kool.util.Color
-import de.fabmax.kool.util.Time
-import de.fabmax.kool.pipeline.ClearColorLoad
-import de.fabmax.kool.modules.ui2.*
-import de.fabmax.kool.scene.addColorMesh
-import de.fabmax.kool.scene.defaultOrbitCamera
+import de.fabmax.kool.KoolApplication           // KoolApplication - запускает Kool-приложение (окно + цикл рендера)
+import de.fabmax.kool.addScene                  // addScene - функция "добавь сцену" в приложение (у тебя она просила отдельный импорт)
+import de.fabmax.kool.math.FLT_EPSILON
+
+import de.fabmax.kool.math.Vec3f                // Vec3f - 3D-вектор (x, y, z), как координаты / направление
+import de.fabmax.kool.math.deg                  // deg - превращает число в "градусы" (угол)
+import de.fabmax.kool.scene.*                   // scene.* - Scene, defaultOrbitCamera, addColorMesh, lighting и т.д.
+
+import de.fabmax.kool.modules.ksl.KslPbrShader  // KslPbrShader - готовый PBR-шейдер (материал)
+import de.fabmax.kool.util.Color                // Color - цвет (RGBA)
+import de.fabmax.kool.util.Time                 // Time.deltaT - сколько секунд прошло между кадрами
+
+import de.fabmax.kool.pipeline.ClearColorLoad   // ClearColorLoad - режим: "не очищай экран, оставь то что уже нарисовано"
+
+import de.fabmax.kool.modules.ui2.*             // UI2: addPanelSurface, Column, Row, Button, Text, dp, remember, mutableStateOf
+import jdk.jshell.execution.JdiInitiator
+import kotlinx.coroutines.flow.StateFlow
+import lesson4.DamageDealt
+import lesson4.EffectApplied
+import lesson4.ItemAdded
+import lesson4.ItemUsed
+import lesson4.QuestStateCompleted
+import lesson4.pushLog
+import java.awt.Choice
+import java.awt.dnd.DropTarget
+
 import java.io.File
 
 enum class ItemType{
@@ -48,9 +62,13 @@ val HEALING_POTION = Item(
 
 class GameState{
     val playerId = mutableStateOf("Oleg")
+
     val hp = mutableStateOf(100)
     val gold = mutableStateOf(0)
+
     val inventory = mutableStateOf(List<ItemStack?>(5) {null})
+    // 5 слотов инвенторя - по умолчанию пустой
+
     val selectedSlot = mutableStateOf(0)
     val log = mutableStateOf<List<String>>(emptyList())
 }
@@ -58,6 +76,8 @@ class GameState{
 fun pushLog(game: GameState, text: String){
     game.log.value = (game.log.value + text).takeLast(20)
 }
+
+// система событий
 
 sealed interface GameEvent{
     val playerId: String
@@ -72,32 +92,34 @@ data class ChoiceSelected(
     override val playerId: String,
     val npcId: String,
     val choiceId: String
-): GameEvent
+) : GameEvent
 
 data class ItemCollected(
     override val playerId: String,
     val itemId: String,
     val count: Int
-): GameEvent
+) : GameEvent
 
 data class ItemGivenToNpc(
     override val playerId: String,
     val npcId: String,
     val itemId: String,
     val count: Int
-): GameEvent
+) : GameEvent
 
 data class QuestStateChanged(
     override val playerId: String,
     val questId: String,
     val newState: String
-): GameEvent
+) : GameEvent
 
 data class PlayerProgressSaved(
     override val playerId: String,
     val questId: String,
     val stateName: String
-): GameEvent
+) : GameEvent
+
+// система рассылки и подписки
 
 typealias Listener = (GameEvent) -> Unit
 
@@ -115,6 +137,8 @@ class EventBus{
     }
 }
 
+// графы
+
 enum class QuestState{
     START,
     OFFERED,
@@ -127,18 +151,37 @@ enum class QuestState{
 
 class StateGraph<S: Any, E: Any>(
     private val initial: S
-){
-    private val transitions = mutableMapOf<S, MutableMap<Class<out E>, (E) -> S>>()
+    // S & E - обобщенные тип данных (generics)
+    // S = State = тип состояния
+    // пример - тут в виде типов будут START, OFFERED...
+    // E = Event = тип события
+    // пример - в виде типов данных TalkedToNpc ...
+    // это нужно чтобы не создавать для каждой системы (квестов, ) отдельные StateGraph()
+    // данный граф, можно использовать не только для квестов но и для Ai мобов Ui диалогов и тд
 
-    fun on(from:S, eventClass: Class<out E>, to: (E) -> S){
-        val byEvent = transitions.getOrPut(from){ mutableMapOf() }
+) {
+    // карта переходов transitions - из состояния S -> (тип события -> функция, которая вычисляет
+    private val transitions = mutableMapOf<S, MutableMap<Class<out E>, (E) -> S>>()
+    // MutableMap<Class<out E>, (E) -> S>
+    // ключ Class<out E> = класс события
+    // (E) -> S "Функция берет событие -> и возвращает новое состояние"
+
+    // on - добавление перехода между состояниями
+    fun on(from: S, eventClass: Class<out E>, to: (E) -> S) {
+        val byEvent = transitions.getOrPut(from) { mutableMapOf() }
         byEvent[eventClass] = to
     }
 
     fun next(current: S, event: E): S{
-        val byEvent = transitions[current] ?: return  current
+        // берем карту переход для данного состояния
+        val byEvent = transitions[current] ?: return current
+
+        // берем класс события
         val eventClass = event::class.java
+
+        // собираем обработчик для данных типа события
         val handler = byEvent[eventClass] ?: return current
+
         return handler(event)
     }
 
@@ -147,30 +190,36 @@ class StateGraph<S: Any, E: Any>(
 
 class QuestSystem(
     private val bus: EventBus
-) {
+){
     val questId = "q_alchemist"
+
     val stateByPlayer = mutableStateOf<Map<String, QuestState>>(emptyMap())
+
     private val graph = StateGraph<QuestState, GameEvent>(QuestState.START)
 
     init {
-        graph.on(QuestState.OFFERED, ChoiceSelected::class.java) { e ->
+        graph.on(QuestState.START, TalkedToNpc::class.java){ _ ->
+            QuestState.OFFERED
+        }
+
+        graph.on(QuestState.OFFERED, ChoiceSelected::class.java){ e ->
             val ev = e as ChoiceSelected
-            if (ev.choiceId == "help") QuestState.ACCEPTED_HELP else QuestState.ACCEPTED_THREAT
+            if (ev.choiceId == "help") QuestState.ACCEPTED_HELP else QuestState.ACCEPTED_HELP
         }
 
-        graph.on(QuestState.ACCEPTED_HELP, ItemCollected::class.java) { e ->
+        graph.on(QuestState.ACCEPTED_HELP, ItemCollected::class.java){ e ->
             val ev = e as ItemCollected
-            if (ev.itemId == HERB.id) QuestState.HERB_COLLECTED else QuestState.ACCEPTED_HELP
+            if (ev.itemId == "help") QuestState.HERB_COLLECTED else QuestState.ACCEPTED_HELP
         }
 
-        graph.on(QuestState.HERB_COLLECTED, ItemCollected::class.java) { e ->
-            val ev = e as ItemCollected
-            if (ev.itemId == HERB.id) QuestState.GOOD_END else QuestState.HERB_COLLECTED
+        graph.on(QuestState.HERB_COLLECTED, ItemCollected::class.java){ e ->
+            val ev = e as ItemGivenToNpc
+            if (ev.itemId == "help") QuestState.GOOD_END else QuestState.HERB_COLLECTED
         }
 
-        graph.on(QuestState.ACCEPTED_THREAT, ChoiceSelected::class.java) { e ->
+        graph.on(QuestState.ACCEPTED_HELP, ItemCollected::class.java){ e ->
             val ev = e as ChoiceSelected
-            if (ev.choiceId == "threaten_confirm") QuestState.EVIL_END else QuestState.ACCEPTED_THREAT
+            if (ev.choiceId == "help") QuestState.EVIL_END else QuestState.ACCEPTED_THREAT
         }
 
         bus.subscribe { event ->
@@ -178,11 +227,11 @@ class QuestSystem(
         }
     }
 
-    fun getState(playerId: String): QuestState {
+    fun getState(playerId: String): QuestState{
         return stateByPlayer.value[playerId] ?: graph.initialState()
     }
 
-    fun setState(playerId: String, state: QuestState) {
+    fun setState(playerId: String, state: QuestState){
         val copy = stateByPlayer.value.toMutableMap()
         copy[playerId] = state
         stateByPlayer.value = copy.toMap()
@@ -193,7 +242,8 @@ class QuestSystem(
         val current = getState(pid)
         val next = graph.next(current, event)
 
-        if (next != current) {
+        // Если состояние изменилось, то фиксируем и публикуем системные события
+        if (next != current){
             setState(pid, next)
 
             bus.publish(
@@ -205,7 +255,7 @@ class QuestSystem(
             )
 
             bus.publish(
-                PlayerProgressSaved(
+                QuestStateChanged(
                     pid,
                     questId,
                     next.name
@@ -219,57 +269,59 @@ class SaveSystem(
     private val bus: EventBus,
     private val game: GameState,
     private val quests: QuestSystem
-) {
+){
     init {
         bus.subscribe { event ->
-            if (event is PlayerProgressSaved) {
-                save(event.playerId, event.questId, event.stateName)
+            if (event is PlayerProgressSaved){
+                save(event.playerId, event.playerId, event.stateName)
             }
         }
     }
 
-    private fun saveFile(playerId: String, questId: String): File {
+    private fun saveFile(playerId: String, questId: String): File{
         val dir = File("saves")
         if (!dir.exists()) dir.mkdirs()
         return File(dir, "${playerId}_${questId}.save")
     }
 
-    private fun save(playerId: String, questId: String, stateName: String) {
+    private fun save(playerId: String, questId: String, stateName: String){
         val f = saveFile(playerId, questId)
+
         val text =
             "playerId=$playerId\n" +
                     "questId=${questId}\n" +
                     "state=${stateName}\n" +
                     "hp=${game.hp.value}\n" +
                     "gold=${game.gold.value}"
+
         f.writeText(text)
     }
 }
 
-fun addItem(slots: List<ItemStack?>, item: Item, addCount: Int): Pair<List<ItemStack?>, Int> {
+fun addItem(slots: List<ItemStack?>, item: Item, addCount: Int): Pair<List<ItemStack?>, Int>{
     var left = addCount
-    val newSlots = slots.toMutableList()
+    val newSlot = slots.toMutableList()
 
-    for (i in newSlots.indices){
-        val s = newSlots[i] ?: continue
-        if (s.item.id == item.id && item.maxStack > 1 && left > 0) {
+    for (i in newSlot.indices){
+        val s = newSlot[i] ?: continue
+        if (s.item.id == item.id && item.maxStack > 1 && left > 0){
             val free = item.maxStack - s.count
             val toAdd = minOf(left, free)
-            newSlots[i] = ItemStack(item, s.count + toAdd)
+            newSlot[i] = ItemStack(item, s.count + toAdd)
             left -= toAdd
         }
     }
 
-    for (i in newSlots.indices){
+    for (i in newSlot.indices){
         if(left <= 0) break
-        if (newSlots[i] == null) {
+        if (newSlot[i] == null){
             val toPlace = minOf(left, item.maxStack)
-            newSlots[i] = ItemStack(item, toPlace)
+            newSlot[i] = ItemStack(item, toPlace)
             left -= toPlace
         }
     }
 
-    return Pair(newSlots, left)
+    return Pair(newSlot, left)
 }
 
 fun removeItem(slots: List<ItemStack?>, itemId: String, count: Int): Pair<List<ItemStack?>, Boolean> {
@@ -282,11 +334,13 @@ fun removeItem(slots: List<ItemStack?>, itemId: String, count: Int): Pair<List<I
             val take = minOf(need, s.count)
             val leftInStack = s.count - take
             need -= take
+
             newSlots[i] = if (leftInStack <= 0) null else ItemStack(s.item, leftInStack)
         }
     }
 
     val success = (need == 0)
+
     return Pair(newSlots, success)
 }
 
@@ -303,7 +357,7 @@ data class DialogueView(
 class Npc(
     val id: String,
     val name: String
-) {
+){
     fun dialogueFor(state: QuestState): DialogueView {
         return when (state) {
             QuestState.START -> DialogueView(
@@ -312,6 +366,7 @@ class Npc(
                     DialogueOption("talk", "Поговорить")
                 )
             )
+
             QuestState.OFFERED -> DialogueView(
                 "Алхимик: Мне нужно, чтобы ты достал мне немного травы",
                 listOf(
@@ -319,28 +374,33 @@ class Npc(
                     DialogueOption("threat", "Не, это ты мне давай траву")
                 )
             )
+
             QuestState.ACCEPTED_HELP -> DialogueView(
                 "Алхимик: Хорош мужик, жду тебя тут",
                 listOf(
                     DialogueOption("collect_herb", "Собрать траву (симуляция)")
                 )
             )
+
             QuestState.HERB_COLLECTED -> DialogueView(
                 "Алхимик: Ну че, принес? Давай сюда!",
                 listOf(
                     DialogueOption("give_herb", "Отдать траву")
                 )
             )
+
             QuestState.ACCEPTED_THREAT -> DialogueView(
                 "Алхимик: Э, малой, ты уверен?",
                 listOf(
                     DialogueOption("threaten_confirm", "Да, гони сюда")
                 )
             )
+
             QuestState.GOOD_END -> DialogueView(
                 "Алхимик: Хорош мужик, выручил",
                 emptyList()
             )
+
             QuestState.EVIL_END -> DialogueView(
                 "Алхимик: Ладно, держи траву, ходи оглядывайся, земляк",
                 emptyList()
@@ -374,11 +434,13 @@ fun main() = KoolApplication {
 
         addColorMesh {
             generate { cube { colored() } }
+
             shader = KslPbrShader {
                 color { vertexColor() }
                 metallic(0.8f)
                 roughness(0.3f)
             }
+
             onUpdate {
                 transform.rotate(45f.deg * Time.deltaT, Vec3f.Z_AXIS)
             }
@@ -399,164 +461,63 @@ fun main() = KoolApplication {
                 .margin(16.dp)
                 .background(RoundRectBackground(Color(0f, 0f, 0f, 0.6f), 14.dp))
                 .padding(12.dp)
-                .width(400.dp)
 
             Column {
                 Text("Player: ${game.playerId.use()}"){}
                 Text("Hp: ${game.hp.use()}"){}
-                Text("Gold: ${game.gold.use()}"){}
+            }
 
-                modifier.margin(bottom = 8.dp)
+            modifier.margin(bottom = sizes.gap)
 
-                val state = quests.stateByPlayer.use()[game.playerId.use()] ?: QuestState.START
-                Text("Quest State: ${state.name}"){}
+            val state = quests.stateByPlayer.use()[game.playerId.use()] ?: QuestState.START
+            Text("Quest State: ${state.name}"){}
 
-                modifier.margin(bottom = 8.dp)
+            modifier.margin(bottom = sizes.gap)
 
-                val view = npc.dialogueFor(state)
-                Text("${npc.name}"){}
-                Text(view.text){}
+            val view = npc.dialogueFor(state)
+            Text("${npc.name}"){}
+            Text(view.text){}
 
-                modifier.margin(bottom = 8.dp)
+            modifier.margin(bottom = sizes.gap)
 
-                Row {
-                    for (opt in view.options) {
-                        Button(opt.text) {
-                            modifier.margin(end = 8.dp).onClick {
-                                val pid = game.playerId.value
+            Row {
+                for (opt in view.options){
+                    Button (opt.text){
+                        modifier.onClick{
+                            val pid = game.playerId.value
 
-                                when (opt.id) {
-                                    "talk" -> {
+                            when(opt.id){
+                                "talk" -> {
+                                    bus.publish(TalkedToNpc(pid, npc.id))
+                                }
+
+                                "collect_herb" -> {
+                                    val (updated, left) = addItem(game.inventory.value, HERB, 1)
+                                    game.inventory.value = updated
+
+                                    bus.publish(ItemCollected(pid, HERB.id, 1))
+
+                                    if (left > 0) game.gold.value += left
+                                }
+
+                                "give_herb" -> {
+                                    val (updated, success) = removeItem(game.inventory.value, HERB.id, 1)
+                                    game.inventory.value = updated
+
+                                    if (success){
                                         bus.publish(TalkedToNpc(pid, npc.id))
-                                        if (state == QuestState.START) {
-                                            quests.setState(pid, QuestState.OFFERED)
-                                        }
-                                    }
-                                    "help" -> {
-                                        bus.publish(ChoiceSelected(pid, npc.id, "help"))
-                                    }
-                                    "threat" -> {
-                                        bus.publish(ChoiceSelected(pid, npc.id, "threat"))
-                                    }
-                                    "collect_herb" -> {
+
                                         val (updated, left) = addItem(game.inventory.value, HERB, 1)
+
+                                        game.gold.value += 1
                                         game.inventory.value = updated
-                                        bus.publish(ItemCollected(pid, HERB.id, 1))
-                                        if (left > 0) {
-                                            val goldEarned = left * 10
-                                            game.gold.value += goldEarned
-                                            pushLog(game, "Трава не поместилась, продана за $goldEarned золота")
-                                        } else {
-                                            pushLog(game, "Трава добавлена в инвентарь")
-                                        }
-                                    }
-                                    "give_herb" -> {
-                                        val (updated, success) = removeItem(game.inventory.value, HERB.id, 1)
-                                        game.inventory.value = updated
-                                        if (success) {
-                                            bus.publish(ItemGivenToNpc(pid, npc.id, HERB.id, 1))
-                                            val (updatedWithReward, leftReward) = addItem(game.inventory.value, HEALING_POTION, 2)
-                                            game.inventory.value = updatedWithReward
-                                            if (leftReward > 0) {
-                                                val goldEarned = leftReward * 25
-                                                game.gold.value += goldEarned
-                                                pushLog(game, "Зелья не поместились, проданы за $goldEarned золота")
-                                            } else {
-                                                pushLog(game, "Получено 2 зелья здоровья!")
-                                            }
-                                        } else {
-                                            pushLog(game, "Ошибка: у вас нет травы!")
-                                        }
-                                    }
-                                    "threaten_confirm" -> {
-                                        bus.publish(ChoiceSelected(pid, npc.id, "threaten_confirm"))
-                                        val (updated, left) = addItem(game.inventory.value, HERB, 3)
-                                        game.inventory.value = updated
-                                        if (left > 0) {
-                                            val goldEarned = left * 10
-                                            game.gold.value += goldEarned
-                                            pushLog(game, "Часть травы продана за $goldEarned золота")
-                                        }
-                                        pushLog(game, "Вы получили 3 травы!")
+
+                                        if (left > 0) game.gold.value += left
+                                    } else{
+                                        pushLog(game, "[ERROR]: herb don't given")
                                     }
                                 }
                             }
-                        }
-                    }
-                }
-
-                modifier.margin(bottom = 16.dp)
-
-                Text("Инвентарь:") { modifier.margin(bottom = 4.dp) }
-
-                val inventory = game.inventory.use()
-                Column {
-                    for (i in inventory.indices) {
-                        val slot = inventory[i]
-                        val slotText = if (slot != null) {
-                            "${slot.item.name} x${slot.count}"
-                        } else {
-                            "[пусто]"
-                        }
-
-                        Row {
-                            Text("Слот ${i + 1}: $slotText") {
-                                modifier
-                                    .padding(vertical = 2.dp)
-                            }
-
-                            if (slot != null && slot.item.id == "potion_heal") {
-                                Button("Исп.") {
-                                    modifier
-                                        .width(40.dp)
-                                        .margin(start = 8.dp)
-                                        .onClick {
-                                            if (game.hp.value < 100) {
-                                                game.hp.value = minOf(100, game.hp.value + 30)
-                                                val (updated, _) = removeItem(game.inventory.value, "potion_heal", 1)
-                                                game.inventory.value = updated
-                                                pushLog(game, "Использовано зелье лечения +30 HP")
-                                            }
-                                        }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                modifier.margin(top = 16.dp)
-
-                Row {
-                    Button("+Трава") {
-                        modifier.margin(end = 8.dp).onClick {
-                            val (updated, left) = addItem(game.inventory.value, HERB, 1)
-                            game.inventory.value = updated
-                            if (left > 0) {
-                                game.gold.value += left * 10
-                                pushLog(game, "Трава продана за ${left * 10} золота")
-                            }
-                        }
-                    }
-
-                    Button("+Зелье") {
-                        modifier.onClick {
-                            val (updated, left) = addItem(game.inventory.value, HEALING_POTION, 1)
-                            game.inventory.value = updated
-                            if (left > 0) {
-                                game.gold.value += left * 25
-                                pushLog(game, "Зелье продано за ${left * 25} золота")
-                            }
-                        }
-                    }
-                }
-
-                modifier.margin(top = 16.dp)
-                Text("Лог событий:") {}
-                Column {
-                    for (logEntry in game.log.use().reversed()) {
-                        Text("• $logEntry") {
-                            modifier.padding(vertical = 2.dp)
-
                         }
                     }
                 }
@@ -564,19 +525,3 @@ fun main() = KoolApplication {
         }
     }
 }
-
-// "collect_herb"  "give_herb"  "threat"  "help"  "threaten_confirm"
-// Сделать для данных опций - логику
-
-// Привет "collect_herb"
-// 1. создать пары переменных val (updated, left) - положить в них с помощью addItem предмет
-// 2. обновить инвентарь но уже с полученной травой
-// 3. публикуем событие о том, что предмет квестовый получен
-// 4. Если предмет не поместился в слоты (left остался) преобразовать остаток в золото
-
-// "give_herb"
-// 1. создать пары переменных val (updated, left) - положить в них с помощью addItem предмет
-// 2. обновить инвентарь но уже с удаленной травой
-// 3. проверка на успех удаления - и публикация в случае успеха события о передаче прс
-// 4. кладем в инвентарь награду за квест (зелья здоровья)
-// 5. Иначе, если неудача в проверке передачи травы - написать об этом сообщение (в логи)

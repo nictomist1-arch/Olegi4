@@ -1,82 +1,59 @@
 package lesson4
 
-import lesson2.Item
-import lesson2.ItemStack
-import lesson2.ItemType
+import de.fabmax.kool.KoolApplication           // KoolApplication - запускает Kool-приложение (окно + цикл рендера)
+import de.fabmax.kool.addScene                  // addScene - функция "добавь сцену" в приложение (у тебя она просила отдельный импорт)
 
-import de.fabmax.kool.KoolApplication
-import de.fabmax.kool.addScene
+import de.fabmax.kool.math.Vec3f                // Vec3f - 3D-вектор (x, y, z), как координаты / направление
+import de.fabmax.kool.math.deg                  // deg - превращает число в "градусы" (угол)
+import de.fabmax.kool.scene.*                   // scene.* - Scene, defaultOrbitCamera, addColorMesh, lighting и т.д.
 
-import de.fabmax.kool.math.Vec3f
-import de.fabmax.kool.math.deg
-import de.fabmax.kool.scene.*
+import de.fabmax.kool.modules.ksl.KslPbrShader  // KslPbrShader - готовый PBR-шейдер (материал)
+import de.fabmax.kool.util.Color                // Color - цвет (RGBA)
+import de.fabmax.kool.util.Time                 // Time.deltaT - сколько секунд прошло между кадрами
 
-import de.fabmax.kool.modules.ksl.KslPbrShader
-import de.fabmax.kool.util.Color
-import de.fabmax.kool.util.Time
+import de.fabmax.kool.pipeline.ClearColorLoad   // ClearColorLoad - режим: "не очищай экран, оставь то что уже нарисовано"
 
-import de.fabmax.kool.pipeline.ClearColorLoad
-import de.fabmax.kool.modules.ui2.*
+import de.fabmax.kool.modules.ui2.*             // UI2: addPanelSurface, Column, Row, Button, Text, dp, remember, mutableStateOf
 
-class GameState {
-    val playerId = mutableStateOf("Player")
-    val hp = mutableStateOf(100)
-    val gold = mutableStateOf(0)
-    val poisonTicksLeft = mutableStateOf(0)
-    val regenTicksLeft = mutableStateOf(0)
-    val damage = mutableStateOf(10)
+import lesson3.ItemStack
+import lesson3.ItemType
+import lesson3.Item
 
-    val dummyHp = mutableStateOf(50)
 
-    val hotbar = mutableStateOf(
-        List<ItemStack?>(9) { null }
-    )
-    val selectedSlot = mutableStateOf(0)
-    val errorMessage = mutableStateOf<String?>(null)
-    val eventLog = mutableStateOf<List<String >>(emptyList())
-}
+import lesson3.HEALING_POTION
+import lesson3.SWORD
 
-val HEALING_POTION = Item(
-    "potion_heal",
-    "Healing potion",
-    ItemType.POTION,
-    12,
-    0
-)
+import lesson3.GameState
 
-val WOOD_SWORD = Item(
-    "wood_sword",
-    "Wood sword",
-    ItemType.WEAPON,
-    1,
-    10
-)
+import lesson3.putIntoSlot
+import lesson3.useSelected
+import java.io.File
 
-// Наша игра будет состоять из связки
-// Event System -> Quest System -> HUD log + progress
-// Почему это вообще надо
-// Сейчас кнопки напрямую меняют состояния hp, hotbar, dummyHp
-// Если бы мы остановились при написании игры на этой систме, то:
-// 1. нопка удар, напрямую бы вычитала Hp У МОБА
-// 2. Квесты, NPC и тд не знали бы что удар по мобу произашел
-// 3. Система сохранений не знала бы что шаг произошел и его надо зафиксировать
-// События решают проблему: кнопка/логика публикуют "произошло X", а другие системы (npc, log, quest)
-// подписаны и в зависимости от внутренней логики - реагируют на эти события
-
-// Система событий
-// Созданем интерфейс, чтобы все наши события имели playerId
 sealed interface GameEvent{
     val playerId: String
 }
 
-// События для квеста и логов
-// data class - просто удобство, он хранит даннные, как пакет. и автмаатически применяет toString
+data class QuestStateCompleted(
+    override val playerId: String,
+    val questId: String,
+    val stepId: Int
+): GameEvent
 
+data class PlayerProgressSaved(
+    override val playerId: String,
+    val questId: String,
+    val stepId: Int
+): GameEvent
 data class ItemAdded(
     override val playerId: String,
     val itemId: String,
     val countAdded: Int,
     val leftOver: Int
+): GameEvent
+data class DamageDealt(
+    override val playerId: String,
+    val targetId: String,
+    val amount: Int
 ): GameEvent
 
 data class ItemUsed(
@@ -84,29 +61,15 @@ data class ItemUsed(
     val itemId: String
 ): GameEvent
 
-data class DamageDealt(
-    override val playerId: String,
-    val targetId: String,
-    val amount: Int,
-
-): GameEvent
-
 data class EffectApplied(
     override val playerId: String,
     val effectId: String,
-    val tick: Int
+    val ticks: Int,
 ): GameEvent
 
-data class QuestStepComplete(
-    override val playerId: String,
-    val questId: String,
-    val stepIndex: Int
-): GameEvent
-
+typealias Listener = (GameEvent) -> Unit
+// функция принимающая GameEvent возвращает пустоту
 class EventBus{
-    typealias Listener = (GameEvent) -> Unit
-    // Функция принимающая GameEvent возвращает пустоту
-
     private val listeners = mutableListOf<Listener>()
 
     fun subscribe(listener: Listener){
@@ -121,118 +84,236 @@ class EventBus{
 }
 
 class QuestSystem(
-    private val bus: EventBus // Шина события - через нее будет
-
+    private val bus: EventBus
 ){
     val questId = "q_training"
-
     val progressByPlayer = mutableStateOf<Map<String, Int>>(emptyMap())
 
-    init {
-        bus.subscribe { event ->
-            hadleEvent(event)
-        }
-    }
-
-    private fun getStep(playerId: String): Int{
+    fun getStep(playerId: String): Int{
         return progressByPlayer.value[playerId] ?: 0
-        // ?: - если ключа не найдется вернуть 0
     }
 
-    private fun setStep(playerId: String, step: Int){
-        val newMap = progressByPlayer.value.toMutableMap()
-        // Создаем новый словарь, чтобы состояние изменило и UI его прочитал
-        newMap [playerId] = step
-        progressByPlayer.value = newMap.toMap()
+    fun setStep(playerId: String, step: Int){
+        val copy = progressByPlayer.value.toMutableMap()
+        copy[playerId] = step
+        progressByPlayer.value = copy.toMap()
     }
 
-    private fun completeStep(playerId: String, stepIndex: Int){
-        setStep(playerId, stepIndex + 1)
-        // Публикуем событие "шаг квеста выполнен "
+    fun completeStep(playerId: String, stepId: Int){
+        val next = stepId + 1
+
+        setStep(playerId, next)
+
         bus.publish(
-            QuestStepComplete(
+            QuestStateCompleted(
                 playerId,
                 questId,
-                stepIndex
+                stepId
             )
         )
     }
+}
 
-    private fun hadleEvent(event: GameEvent){
-        val player = event.playerId
-        val step = getStep(player)
-
-        // Если квест уже выполнен
-        if (step >= 2) return
-
-        when(event){
-            is ItemAdded -> {
-                if (step == 0 && event.itemId == WOOD_SWORD.id){
-                    completeStep(player, 0)
-                }
+class SaveSystem(
+    private val bus: EventBus,
+    private val game: GameState,
+    private val quest: QuestSystem
+){
+    init {
+        bus.subscribe { event ->
+            // ожидание событий сохранения прошресса - пищем в файл
+            if (event is PlayerProgressSaved){
+                saveProgress(event.playerId, event.questId, event.stepId)
             }
-
-            is DamageDealt -> {
-                // Шаг квеста 1 ударить манекен мечом
-                if (step == 1 && event.targetId == "dummy" && event.amount >= 10){
-                    completeStep(player,1)
-                }
-            }
-            else -> {}
         }
     }
-}
-
-// Функии
-
-fun putIntoSlot(
-    slots: List<ItemStack?>,
-    slotIndex: Int,
-    item: Item,
-    addCount: Int
-): Pair<List<ItemStack?>, Int> {
-    val newSlots = slots.toMutableList()
-    val current = newSlots[slotIndex]
-
-    if (current == null) {
-        val countToPlace = minOf(addCount, item.maxStack)
-        newSlots[slotIndex] = ItemStack(item, countToPlace)
-        val leftOver = addCount - countToPlace
-        return Pair(newSlots, leftOver)
+    private fun saveFile(playerId: String, questId: String): File {
+        val dir = File("saves")
+        if(!dir.exists()){
+            dir.mkdirs() // mkdirs - создает папку (и родителей папки), если ее нет
+        }
+        // имя файла: saves/player_1_q_training.save
+        return File(dir, "${playerId}_${questId}.save")
     }
 
-    if (current.item.id == item.id && item.maxStack > 1) {
-        val freeSpace = item.maxStack - current.count
-        val toAdd = minOf(addCount, freeSpace)
-        newSlots[slotIndex] = ItemStack(item, current.count + toAdd)
-        val leftOver = addCount - toAdd
-        return Pair(newSlots, leftOver)
-    }
-    return Pair(newSlots, addCount)
-}
+    fun saveProgress(playerId: String, questId: String, stepId: Int){
+        val f = saveFile(playerId, questId)
 
-fun useSelected(
-    slots: List<ItemStack?>,
-    slotIndex: Int
-): Pair<List<ItemStack?>, ItemStack?> {
-    val newSlots = slots.toMutableList()
-    val current = newSlots[slotIndex] ?: return Pair(newSlots, null)
+        // простое хранение сохранения в формате ключ = значение
+        val text =
+            "playerId=${playerId}\n" +
+            "questId=${questId}\n" +
+            "stepId=${stepId}\n" +
+            "hp=${game.hp.value}\n" +
+            "questId=${game.gold.value}\n"
 
-    val newCount = current.count - 1
-
-    if (newCount <= 0) {
-        newSlots[slotIndex] = null
-    } else {
-        newSlots[slotIndex] = ItemStack(current.item, newCount)
+        f.writeText(text) // write
     }
 
-    return Pair(newSlots, current)
+    fun loadProgress(playerId: String, questId: String){
+        val f = saveFile(playerId, questId)
+        if (!f.exists()) return
+
+        val lines = f.readLines() // чтение файла построчно
+        val map = mutableMapOf<String, String>()
+
+        for (line in lines){
+            val parts = line.split("=") // split делит строку на части \
+            if (parts.size == 2){
+                val key = parts[0]
+                val value = parts[1]
+                map[key] = value
+            }
+        }
+
+        val loadedStep = map["stepId"]?.toIntOrNull() ?: 0
+        // ?. - если не null - то вызови toIntOrNull
+        // toIntOrNull - пытается перрвать строку в Int, иначе null
+        // ?: - если получили null -> вернуть 0
+        val loadedHp = map["hp"]?.toIntOrNull() ?: 100
+        val loadedGold = map["gold"]?.toIntOrNull() ?: 0
+
+        game.hp.value = loadedHp
+        game.gold.value = loadedGold
+
+        quest.setStep(playerId, loadedStep)
+    }
 }
 
 fun pushLog(game: GameState, text: String){
-    val old = game.eventLog.value
-
-    val updated = old + text
-
-    game.eventLog.value = updated.takeLast(20)
+    game.eventLog.value = (game.eventLog.value + text).takeLast(20)
 }
+
+fun main() = KoolApplication {
+    val game = GameState()
+    val bus = EventBus()
+    val quests = QuestSystem(bus)
+    val saves = SaveSystem(bus, game, quests)
+
+    bus.subscribe { event ->
+        val line = when (event) {
+            is ItemAdded -> "ItedAdded: ${event.itemId} + ${event.countAdded} (осталось: ${event.leftOver})"
+            is ItemUsed -> "ItemUsed: ${event.itemId}"
+            is PlayerProgressSaved -> "Game Saved: ${event.questId} Step: ${event.stepId}"
+            is DamageDealt -> "DamageDealt: ${event.amount} - ${event.targetId}"
+            is EffectApplied -> "EffectApplied: ${event.effectId} +${event.ticks}"
+            is QuestStateCompleted -> "QuestStepCompleted: ${event.questId} шаг: ${event.stepId + 1}"
+            else -> {}
+        }
+        pushLog(game, "[${event.playerId}] $line")
+    }
+        addScene {
+            defaultOrbitCamera()
+
+            addColorMesh {
+                generate { cube { colored() } }
+
+                shader = KslPbrShader {
+                    color { vertexColor() }
+                    metallic(0.8f)
+                    roughness(0.3f)
+                }
+
+                onUpdate {
+                    transform.rotate(45f.deg * Time.deltaT, Vec3f.Z_AXIS)
+                }
+            }
+
+            lighting.singleDirectionalLight {
+                setup(Vec3f(-1f, -1f, -1f))
+                setColor(Color.WHITE, 5f)
+            }
+
+            var potionTimeSec = 0f
+            var regenTimeSec = 0f
+            onUpdate {
+                if (game.potionTicksLeft.value > 0) {
+                    potionTimeSec += Time.deltaT
+                    if (potionTimeSec >= 1f) {
+                        potionTimeSec = 0f
+                        game.potionTicksLeft.value -= 1
+                        game.hp.value = (game.hp.value - 2).coerceAtLeast(0)
+                    }
+                } else {
+                    potionTimeSec = 0f
+                }
+
+                if (game.regenTicksLeft.value > 0) {
+                    regenTimeSec += Time.deltaT
+                    if (regenTimeSec >= 1f) {
+                        regenTimeSec = 0f
+                        game.regenTicksLeft.value -= 1
+                        game.hp.value = (game.hp.value + 1).coerceAtLeast(0)
+                    }
+                } else {
+                    regenTimeSec = 0f
+                }
+            }
+        }
+
+        addScene {
+            setupUiScene(ClearColorLoad)
+
+            addPanelSurface {
+                modifier
+                    .align(AlignmentX.Start, AlignmentY.Top)
+                    .margin(16.dp)
+                    .background(RoundRectBackground(Color(0f, 0f, 0f, 0.6f), 14.dp))
+                    .padding(12.dp)
+
+                Column {
+                    Text("Игрок: ${game.playerId.use()}"){}
+                    Text("HP: ${game.hp.use()}"){
+                        modifier.margin(bottom = sizes.gap)
+                    }
+
+                    val step = quests.progressByPlayer.use()[game.playerId.use()] ?: 0
+                    Text("прогресс квест: $step"){
+                        modifier.margin(bottom = sizes.gap)
+                    }
+
+                    Text("ыбранный слот: ${game.selectedSlot.use() + 1}"){
+                        modifier.margin(bottom = sizes.gap)
+                    }
+
+                    Row{
+                        Button ("Сменить игрока"){
+                            modifier.margin(end = 8.dp).onClick {
+                                game.playerId.value =
+                                    if (game.playerId.value == "Player") "Oleg" else "PLayer"
+                            }
+                        }
+
+                        Button ("Загрузка последнее сохранение"){
+                            modifier.onClick{
+                                saves.loadProgress(game.playerId.value, quests.questId)
+                                pushLog(game, "[${game.playerId.value}] загрузил сохранение из квеста ${quests.questId}")
+                            }
+                        }
+                    }
+                    Row { modifier.margin(top = sizes.smallGap)
+                        Button("Получить меч (шаг 0)"){
+                            modifier.margin(end = 8.dp).onClick{
+                                    val pid = game.playerId.value
+                                    quests.completeStep(pid, stepId = 0)
+                                }
+                        }
+                        Button("Удврить манекен (шаг 1)"){
+                            modifier.onClick{
+                                val pid = game.playerId.value
+                                quests.completeStep(pid, stepId = 1)
+                            }
+                        }
+                    }
+                    Text("Лог событий"){
+                        modifier.margin(top = sizes.gap)
+                        for (line in game.eventLog.use()){
+                            Text(line){
+                                modifier.font(sizes.smallText)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
