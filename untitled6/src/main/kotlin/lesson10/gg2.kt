@@ -9,24 +9,22 @@ import de.fabmax.kool.modules.ksl.KslPbrShader
 import de.fabmax.kool.util.Color
 import de.fabmax.kool.util.Time
 import de.fabmax.kool.modules.ui2.*
+import de.fabmax.kool.pipeline.ClearColorLoad
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.delay
-
-import kotlinx.coroutines.*                      // для launch, delay и т.д.
-import kotlinx.coroutines.flow.MutableSharedFlow    // радиостанция событий
-import kotlinx.coroutines.flow.SharedFlow           // чтение для подписчиков
-import kotlinx.coroutines.flow.MutableStateFlow     // табло состояний
-import kotlinx.coroutines.flow.StateFlow            // только для чтения
-import kotlinx.coroutines.flow.asSharedFlow         // отдать наружу только SharedFlow
-import kotlinx.coroutines.flow.asStateFlow          // отдать только StateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
-
-import kotlinx.serialization.Serializable           // аннотация, что можно сохранять
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-
 import java.io.File
 
 @Serializable
@@ -39,16 +37,14 @@ data class PlayerSave(
     val questState: String
 )
 
-// События игровые - Flow будет рассылать их всем системам
-
-sealed interface GameEvent{
+sealed interface GameEvent {
     val playerId: String
 }
 
 data class AttackPressed(
     override val playerId: String,
     val targetId: String
-): GameEvent
+) : GameEvent
 
 data class DamageDealt(
     override val playerId: String,
@@ -60,7 +56,7 @@ data class ChoiceSelected(
     override val playerId: String,
     val npcId: String,
     val choiceId: String
-): GameEvent
+) : GameEvent
 
 data class QuestStateChanged(
     override val playerId: String,
@@ -73,68 +69,382 @@ data class PoisonApplied(
     val ticks: Int,
     val damagePerTick: Int,
     val intervalMs: Long
-): GameEvent
+) : GameEvent
 
 data class TalkedToNpc(
     override val playerId: String,
     val npcId: String
-): GameEvent
+) : GameEvent
 
 data class SaveRequested(
-    override val playerId: String,
-): GameEvent
+    override val playerId: String
+) : GameEvent
 
-class GameServer{
+class GameServer {
     private val _events = MutableSharedFlow<GameEvent>(extraBufferCapacity = 64)
-    // Дополнительный небольшой буфер, что Emit при рассылке событий чаще проходил не упираясь в ограничения буфера
-
-    val event: SharedFlow<GameEvent> = _events.asSharedFlow()
+    val events: SharedFlow<GameEvent> = _events.asSharedFlow()
 
     private val _players = MutableStateFlow(
         mapOf(
             "Oleg" to PlayerSave("Oleg", 100, 0, 0, 0L, "START"),
-            "Stas" to PlayerSave("Oleg", 100, 0, 0, 0L, "START")
+            "Stas" to PlayerSave("Stas", 100, 0, 0, 0L, "START")
         )
     )
-
     val players: StateFlow<Map<String, PlayerSave>> = _players.asStateFlow()
 
-    fun tryPublish(event: GameEvent): Boolean{
+    fun tryPublish(event: GameEvent): Boolean {
         return _events.tryEmit(event)
     }
 
-    suspend fun publish(event: GameEvent){
+    suspend fun publish(event: GameEvent) {
         _events.emit(event)
     }
 
-    fun updatePlayer(playerId: String, change: (PlayerSave) -> PlayerSave){
-        // change - функция, которая берет старый PlayerSave и возвращает новый
-
+    fun updatePlayer(playerId: String, change: (PlayerSave) -> PlayerSave) {
         val oldMap = _players.value
         val oldPlayer = oldMap[playerId] ?: return
 
         val newPlayer = change(oldPlayer)
-
         val newMap = oldMap.toMutableMap()
         newMap[playerId] = newPlayer
-
-        _players.value = newMap.toMutableMap()
+        _players.value = newMap
     }
 
-    fun getPlayer(playerId: String): PlayerSave{
+    fun getPlayer(playerId: String): PlayerSave {
         return _players.value[playerId] ?: PlayerSave(playerId, 100, 0, 0, 0L, "START")
     }
 }
 
 class DamageSystem(
     private val server: GameServer
-){
-    fun onEvent(e: GameEvent){
-        if(e is DamageDealt){
-            server.updatePlayer(e.playerId) {player ->
+) {
+    fun onEvent(e: GameEvent) {
+        if (e is DamageDealt) {
+            server.updatePlayer(e.playerId) { player ->
                 val newHp = (player.hp - e.amount).coerceAtLeast(0)
-
                 player.copy(hp = newHp)
+            }
+        }
+    }
+}
+
+class CooldownSystem(
+    private val server: GameServer,
+    private val scope: CoroutineScope
+) {
+    private val cooldownJobs = mutableMapOf<String, Job>()
+
+    fun startCooldown(playerId: String, totalMs: Long) {
+        cooldownJobs[playerId]?.cancel()
+
+        server.updatePlayer(playerId) { player -> player.copy(attackCooldownMsLeft = totalMs) }
+
+        val job = scope.launch {
+            val step = 100L
+
+            while (isActive && server.getPlayer(playerId).attackCooldownMsLeft > 0L) {
+                delay(step)
+
+                server.updatePlayer(playerId) { player ->
+                    val left = (player.attackCooldownMsLeft - step).coerceAtLeast(0L)
+                    player.copy(attackCooldownMsLeft = left)
+                }
+            }
+            cooldownJobs.remove(playerId)
+        }
+
+        cooldownJobs[playerId] = job
+    }
+
+    fun canAttack(playerId: String): Boolean {
+        return server.getPlayer(playerId).attackCooldownMsLeft <= 0L
+    }
+}
+
+class PoisonSystem(
+    private val server: GameServer,
+    private val scope: CoroutineScope
+) {
+    private val poisonJobs = mutableMapOf<String, Job>()
+
+    fun onEvent(e: GameEvent, publishDamage: (DamageDealt) -> Unit) {
+        if (e is PoisonApplied) {
+            server.updatePlayer(e.playerId) { player ->
+                player.copy(poisonTicksLeft = player.poisonTicksLeft + e.ticks)
+            }
+
+            val job = scope.launch {
+                while (isActive && server.getPlayer(e.playerId).poisonTicksLeft > 0) {
+                    delay(e.intervalMs)
+
+                    server.updatePlayer(e.playerId) { player ->
+                        player.copy(poisonTicksLeft = (player.poisonTicksLeft - 1).coerceAtLeast(0))
+                    }
+
+                    publishDamage(DamageDealt(e.playerId, "self", e.damagePerTick))
+                }
+                poisonJobs.remove(e.playerId)
+            }
+            poisonJobs[e.playerId] = job
+        }
+    }
+}
+
+class QuestSystem(
+    private val server: GameServer,
+    private val scope: CoroutineScope
+) {
+    private val questId = "q_alchemist"
+    private val npcId = "alchemist"
+
+    fun onEvent(e: GameEvent, publish: (GameEvent) -> Unit) {
+        val player = server.getPlayer(e.playerId)
+
+        when (e) {
+            is TalkedToNpc -> {
+                if (e.npcId != npcId) return
+
+                if (player.questState == "START") {
+                    server.updatePlayer(e.playerId) { it.copy(questState = "OFFERED") }
+                    publish(QuestStateChanged(e.playerId, questId, "OFFERED"))
+                }
+            }
+            is ChoiceSelected -> {
+                if (e.npcId != npcId) return
+
+                if (player.questState == "OFFERED") {
+                    val newState =
+                        if (e.choiceId == "help") "GOOD_END"
+                        else "EVIL_END"
+
+                    server.updatePlayer(e.playerId) { it.copy(questState = newState) }
+                    publish(QuestStateChanged(e.playerId, questId, newState))
+                }
+            }
+            else -> {}
+        }
+    }
+}
+
+class SaveSystem {
+    private val json = Json {
+        prettyPrint = true
+        encodeDefaults = true
+    }
+
+    private fun file(playerId: String): File {
+        val dir = File("saves")
+        if (!dir.exists()) dir.mkdirs()
+        return File(dir, "$playerId.json")
+    }
+
+    fun save(playerSave: PlayerSave) {
+        val text = json.encodeToString(PlayerSave.serializer(), playerSave)
+        file(playerSave.playerId).writeText(text)
+    }
+
+    fun load(playerId: String): PlayerSave? {
+        val file = file(playerId)
+        if (!file.exists()) return null
+
+        val text = file.readText()
+        return try {
+            json.decodeFromString(PlayerSave.serializer(), text)
+        } catch (e: Exception) {
+            null
+        }
+    }
+}
+
+class HudState {
+    val activePlayerId = mutableStateOf("Oleg")
+
+    val hp = mutableStateOf(100)
+    val gold = mutableStateOf(0)
+    val poisonTicksLeft = mutableStateOf(0)
+    val questState = mutableStateOf("START")
+    val attackCooldownMsLeft = mutableStateOf(0L)
+
+    val log = mutableStateOf<List<String>>(emptyList())
+}
+
+fun hudLog(hud: HudState, line: String) {
+    hud.log.value = (hud.log.value + line).takeLast(20)
+}
+
+object Shared {
+    var server: GameServer? = null
+    var saver: SaveSystem? = null
+    var cooldowns: CooldownSystem? = null
+    var quests: QuestSystem? = null
+    var poison: PoisonSystem? = null
+    var damage: DamageSystem? = null
+}
+
+fun main() = KoolApplication {
+    val hud = HudState()
+
+    addScene {
+        defaultOrbitCamera()
+
+        addColorMesh {
+            generate { cube { colored() } }
+
+            shader = KslPbrShader {
+                color { vertexColor() }
+                metallic(0.7f)
+                roughness(0.4f)
+            }
+
+            onUpdate {
+                transform.rotate(45f.deg * Time.deltaT, Vec3f.X_AXIS)
+            }
+        }
+
+        lighting.singleDirectionalLight {
+            setup(Vec3f(-1f, -1f, -1f))
+            setColor(Color.WHITE, 5f)
+        }
+
+        val server = GameServer()
+        val saver = SaveSystem()
+        val damage = DamageSystem(server)
+        val cooldowns = CooldownSystem(server, coroutineScope)
+        val poison = PoisonSystem(server, coroutineScope)
+        val quests = QuestSystem(server, coroutineScope)
+
+        Shared.server = server
+        Shared.saver = saver
+        Shared.damage = damage
+        Shared.cooldowns = cooldowns
+        Shared.poison = poison
+        Shared.quests = quests
+
+        coroutineScope.launch {
+            server.events.collect { event ->
+                damage.onEvent(event)
+            }
+        }
+
+        coroutineScope.launch {
+            server.events.collect { event ->
+                poison.onEvent(event) { dmg ->
+                    if (!server.tryPublish(dmg)) {
+                        coroutineScope.launch { server.publish(dmg) }
+                    }
+                }
+            }
+        }
+
+        coroutineScope.launch {
+            server.events.collect { event ->
+                quests.onEvent(event) { newEvent ->
+                    if (!server.tryPublish(newEvent)) {
+                        coroutineScope.launch { server.publish(newEvent) }
+                    }
+                }
+            }
+        }
+
+        coroutineScope.launch {
+            server.events.collect { event ->
+                if (event is SaveRequested) {
+                    val snapshot = server.getPlayer(event.playerId)
+                    saver.save(snapshot)
+                }
+            }
+        }
+    }
+
+    addScene {
+        addPanelSurface {
+            modifier
+                .align(AlignmentX.Start, AlignmentY.Top)
+                .margin(16.dp)
+                .background(RoundRectBackground(Color(0f, 0f, 0f, 0.6f), 14.dp))
+                .padding(12.dp)
+                .width(300.dp)
+
+            Column {
+                Text("HP: ${hud.hp.use()}") { modifier.margin(bottom = 4.dp) }
+                Text("Gold: ${hud.gold.use()}") { modifier.margin(bottom = 4.dp) }
+                Text("Яд: ${hud.poisonTicksLeft.use()}") { modifier.margin(bottom = 4.dp) }
+                Text("Квест: ${hud.questState.use()}") { modifier.margin(bottom = 4.dp) }
+                Text("Кулдаун: ${hud.attackCooldownMsLeft.use()} ms") { modifier.margin(bottom = 8.dp) }
+
+                Row {
+                    Button("Применить яд") {
+                        modifier
+                            .margin(end = 8.dp)
+                            .onClick {
+                                Shared.server?.tryPublish(PoisonApplied("Oleg", 5, 2, 1000L))
+                                hudLog(hud, "Яд применен")
+                            }
+                    }
+
+                    Button("Сохранить") {
+                        modifier.onClick {
+                            Shared.server?.tryPublish(SaveRequested("Oleg"))
+                            hudLog(hud, "Запрос сохранения")
+                        }
+                    }
+                }
+
+                Text("Логи:") { modifier.margin(top = 8.dp, bottom = 4.dp) }
+                val lines = hud.log.use()
+                Column {
+                    for (line in lines) {
+                        Text(line) {
+                            modifier
+                                .margin(bottom = 2.dp)
+                                .font(sizes.smallText)
+                        }
+                    }
+                }
+            }
+            addScene {
+                setupUiScene(ClearColorLoad)
+
+                val server = Shared.server
+
+                if (server != null){
+                    coroutineScope.launch {
+                        server.events.collect { event ->
+                            val line = when (event){
+                                is AttackPressed -> "${event.playerId} атаковал ${event.targetId}"
+                                is DamageDealt -> "${event.targetId} получил ${event.amount} урона"
+                                is PoisonApplied -> "на ${event.playerId} наложил яд на ${event.ticks} тиков"
+                                is TalkedToNpc ->  "${event.playerId} начал разговор с ${event.npcId}"
+                                is ChoiceSelected -> "${event.playerId} выбрал ${event.choiceId}"
+                                is SaveRequested -> "Запрос на сохранение"
+                                is QuestStateChanged -> "${event.playerId} переел на новый этап квеста ${event.newState}"
+                                else -> "Неизвестное событие"
+                            }
+
+                            hudLog(hud, "$line")
+                        }
+                    }
+                    coroutineScope.launch {
+                        server.players.collect { playersMap ->
+                            val pid = hud.activePlayerId.value
+                            val player = playersMap[pid] ?: return@collect
+
+                            hud.hp.value = player.hp
+                            hud.gold.value = player.gold
+                            hud.poisonTicksLeft.value = player.poisonTicksLeft
+                            hud.questState.value = player.questState
+                            hud.attackCooldownMsLeft.value = player.attackCooldownMsLeft
+                        }
+                    }
+                }
+                addPanelSurface {
+                    modifier
+                        .align(AlignmentX.Start, AlignmentY.Top)
+                        .margin(16.dp)
+                        .background(RoundRectBackground(Color(0f, 0f, 0f, 0.6f), 14.dp))
+                        .padding(12.dp)
+                        .width(300.dp)
+                }
             }
         }
     }
