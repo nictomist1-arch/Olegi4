@@ -445,6 +445,53 @@ fun main() = KoolApplication {
                         .padding(12.dp)
                         .width(300.dp)
                 }
+
+                Text ("Player: ${hud.activePlayerId.use()}") {}
+                Text("HP: ${hud.hp.use()} Gold: ${hud.gold.use()}") {
+                    modifier.margin(bottom = sizes.gap)
+                }
+
+                Text("QuestState: ${hud.questState.use()}") {}
+                Text("Poison ticks left: ${hud.poisonTicksLeft.use()}") {}
+                Text("Attack cooldown: ${hud.attackCooldownMsLeft.use()}") {
+                    modifier.margin(bottom = sizes.gap)
+                }
+
+                Row {
+                    Button("Switch Player") {
+                        modifier.onClick {
+                            val currentPlayer = hud.activePlayerId.value
+                            val newPlayer = if (currentPlayer == "Oleg") "Stas" else "Oleg"
+                            hud.activePlayerId.value = newPlayer
+                            hudLog(hud, "Переключено на $newPlayer")
+                        }
+                    }
+
+                    Button("Save JSON") {
+                        modifier.onClick {
+                            val server = Shared.server
+                            if (server == null) {
+                                hudLog(hud, "Ошибка: сервер не инициализирован")
+                                return@onClick
+                            }
+
+                            val playerId = hud.activePlayerId.value
+
+                            val event = SaveRequested(playerId)
+                            val published = server.tryPublish(event)
+
+                            if (published) {
+                                hudLog(hud, "Событие сохранения отправлено для $playerId")
+                            } else {
+                                hudLog(hud, "Буфер событий переполнен, отправляю через корутину...")
+                                coroutineScope.launch {
+                                    server.publish(event)
+                                    hudLog(hud, "Событие сохранения отправлено для $playerId (через корутину)")
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

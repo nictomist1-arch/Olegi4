@@ -9,22 +9,11 @@ import de.fabmax.kool.modules.ksl.KslPbrShader
 import de.fabmax.kool.util.Color
 import de.fabmax.kool.util.Time
 import de.fabmax.kool.modules.ui2.*
-import de.fabmax.kool.modules.ui2.setupUiScene
-import de.fabmax.kool.pipeline.ClearColorLoad
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.delay
-import lesson10.AttackPressed
-import lesson10.ChoiceSelected
-import lesson10.DamageDealt
-import lesson10.PoisonApplied
-import lesson10.QuestStateChanged
-import lesson10.SaveRequested
-import lesson10.Shared
-import lesson10.TalkedToNpc
-import lesson10.hudLog
 
 class GameState {
     val playerId = mutableStateOf("Oleg")
