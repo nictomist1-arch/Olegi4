@@ -17,7 +17,6 @@ import de.fabmax.kool.pipeline.ClearColorLoad   // ClearColorLoad - режим: 
 import de.fabmax.kool.modules.ui2.*             // UI2: addPanelSurface, Column, Row, Button, Text, dp, remember, mutableStateOf
 import jdk.jshell.execution.JdiInitiator
 import kotlinx.coroutines.flow.StateFlow
-<<<<<<< HEAD
 import lesson3.EffectApplied
 import lesson3.HEALING_POTION
 import lesson3.ItemAdded
@@ -27,8 +26,6 @@ import lesson3.SWORD
 import lesson3.putIntoSlot
 import lesson3.useSelected
 import lesson5.pushLog
-=======
->>>>>>> c68b5f3bb6aed7a0a4c568feaeafce7f357228c6
 import java.awt.Choice
 import java.awt.dnd.DropTarget
 import java.io.File
@@ -313,11 +310,7 @@ class ServerWorld(
                 // после загрузки сохранения игрока - желательно тоже сохранить событием
                 bus.publish(PlayerProgressSaved(cmd.playerId, "Игрок загрузил сохранение с диска"))
             }
-<<<<<<< HEAD
-            
-=======
 
->>>>>>> c68b5f3bb6aed7a0a4c568feaeafce7f357228c6
             is CmdLoadDataToServer -> {
                 savePlayerToDisk(cmd.playerId)
                 bus.publish(PlayerProgressSaved(cmd.playerId, "Игрок выгрузил сохранение на диск"))
@@ -535,7 +528,6 @@ fun main() = KoolApplication {
                 Text("GOLD: ${ui.gold.use()}") {}
                 Text("QUEST STATE: ${ui.questState.use()}") {}
                 Text("PING: ${ui.networkLagMs.use()}") {}
-<<<<<<< HEAD
             }
             Row {
                 modifier.margin(top = 6.dp)
@@ -568,104 +560,109 @@ fun main() = KoolApplication {
                         modifier
                             .margin(end = 8.dp)
                             .onClick {
-                                ui.playerId.value = if(ui.playerId.value == "Oleg") "Player" else "Oleg"
+                                ui.playerId.value = if (ui.playerId.value == "Oleg") "Player" else "Oleg"
                             }
                     }
 
                     Button("загрузить сохранение") {
-                        modifier.onClick{
+                        modifier.onClick {
                             client.send(CmdLoadPlayer(playerId = String()))
                         }
                     }
 
                     Button("выгрузить сохранение") {
-                        modifier.onClick{
+                        modifier.onClick {
                             client.send(CmdLoadDataToServer(playerId = String()))
                         }
                     }
-=======
 
-                val qState = ui.questState.use()
-                Row {
-                    modifier.margin(top = 6.dp)
-
-                    Button("ping 50 ms") {
-                        modifier
-                            .margin(end = 8.dp)
-                            .onClick {
-                                ui.networkLagMs.value = 50
-                            }
-                    }
-
-                    Button("ping 350 ms") {
-                        modifier
-                            .margin(end = 8.dp)
-                            .onClick {
-                                ui.networkLagMs.value = 350
-                            }
-                    }
-
-                    Button("ping 1200 ms") {
-                        modifier.onClick {
-                            ui.networkLagMs.value = 1200
-                        }
-                    }
+                    val qState = ui.questState.use()
                     Row {
                         modifier.margin(top = 6.dp)
 
-                        Button("сменить игрока") {
+                        Button("ping 50 ms") {
                             modifier
                                 .margin(end = 8.dp)
                                 .onClick {
-                                    ui.playerId.value = if (ui.playerId.value == "Oleg") "Player" else "Oleg"
+                                    ui.networkLagMs.value = 50
                                 }
                         }
 
-                        Button("загрузить сохранение") {
-                            modifier.onClick {
-                                client.send(CmdLoadPlayer(playerId = String()))
-                            }
+                        Button("ping 350 ms") {
+                            modifier
+                                .margin(end = 8.dp)
+                                .onClick {
+                                    ui.networkLagMs.value = 350
+                                }
                         }
 
-                        Button("выгрузить сохранение") {
+                        Button("ping 1200 ms") {
                             modifier.onClick {
-                                client.send(CmdLoadDataToServer(playerId = String()))
+                                ui.networkLagMs.value = 1200
                             }
                         }
-                    }
-                }
+                        Row {
+                            modifier.margin(top = 6.dp)
 
-                val dialog = npc.dialogueFor(qState)
+                            Button("сменить игрока") {
+                                modifier
+                                    .margin(end = 8.dp)
+                                    .onClick {
+                                        ui.playerId.value = if (ui.playerId.value == "Oleg") "Player" else "Oleg"
+                                    }
+                            }
 
-                Text("${dialog.npcName}:"){
-                    modifier.margin(top = sizes.gap)
-                }
-                Text(dialog.text){
-                    modifier.margin(bottom = sizes.smallGap)
-                }
+                            Button("загрузить сохранение") {
+                                modifier.onClick {
+                                    client.send(CmdLoadPlayer(playerId = String()))
+                                }
+                            }
 
-                Row {
-                    // перебор всех вариантов ответов диалога
-                    for(opt in dialog.options){
-                        Button(opt.text){
-                            modifier.margin(end=8.dp).onClick{
-                                val pid = ui.playerId.value
-
-                                when(opt.id){
-                                    "talk" -> client.send(CmdTalkToNpc(pid, "alchemist"))
-                                    "help" -> client.send(CmdSelectChoice(pid, "alchemist", "help"))
-                                    "thread" -> client.send(CmdSelectChoice(pid, "alchemist", "thread"))
-                                    "threat_confirm" -> client.send(CmdSelectChoice(pid, "alchemist", "thread_confirm"))
+                            Button("выгрузить сохранение") {
+                                modifier.onClick {
+                                    client.send(CmdLoadDataToServer(playerId = String()))
                                 }
                             }
                         }
                     }
-                }
-                // логироване
-                Text("LOG:"){modifier.margin(top = sizes.gap)}
-                for (line in ui.log.use()){
-                    Text(line){modifier.font(sizes.smallText)}
->>>>>>> c68b5f3bb6aed7a0a4c568feaeafce7f357228c6
+
+                    val dialog = npc.dialogueFor(qState)
+
+                    Text("${dialog.npcName}:") {
+                        modifier.margin(top = sizes.gap)
+                    }
+                    Text(dialog.text) {
+                        modifier.margin(bottom = sizes.smallGap)
+                    }
+
+                    Row {
+                        // перебор всех вариантов ответов диалога
+                        for (opt in dialog.options) {
+                            Button(opt.text) {
+                                modifier.margin(end = 8.dp).onClick {
+                                    val pid = ui.playerId.value
+
+                                    when (opt.id) {
+                                        "talk" -> client.send(CmdTalkToNpc(pid, "alchemist"))
+                                        "help" -> client.send(CmdSelectChoice(pid, "alchemist", "help"))
+                                        "thread" -> client.send(CmdSelectChoice(pid, "alchemist", "thread"))
+                                        "threat_confirm" -> client.send(
+                                            CmdSelectChoice(
+                                                pid,
+                                                "alchemist",
+                                                "thread_confirm"
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // логироване
+                    Text("LOG:") { modifier.margin(top = sizes.gap) }
+                    for (line in ui.log.use()) {
+                        Text(line) { modifier.font(sizes.smallText) }
+                    }
                 }
             }
         }
@@ -732,10 +729,3 @@ fun main() = KoolApplication {
 
 
 
-
-
-
-<<<<<<< HEAD
-
-=======
->>>>>>> c68b5f3bb6aed7a0a4c568feaeafce7f357228c6

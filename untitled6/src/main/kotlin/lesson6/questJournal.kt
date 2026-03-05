@@ -480,23 +480,7 @@ class SaveSystem(
     private val game: GameState,
     private val questManager: QuestManager,
     private val quest: List<QuestDefinition>
-){
-    init {
-        bus.subscribe { event ->
-            if (event is PlayerProgressSaved){
-                saveAllForPlayer(event.playerId)
-            }
-        }
-    }
-
-    private fun saveFile(playerId: String): File{
-        val dir = File
-    }
-
-    private fun saveAllForPlayer(playerId: String){
-        val f = saveAllForPlayer()
-    }
-}
+)
 
 
 
