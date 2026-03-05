@@ -483,7 +483,7 @@ fun main() = KoolApplication {
                             if (published) {
                                 hudLog(hud, "Событие сохранения отправлено для $playerId")
                             } else {
-                                hudLog(hud, "Буфер событий переполнен, отправляю через корутину...")
+                                hudLog(hud, "Буфер событий переполнен, отправляю через корутину...") 
                                 coroutineScope.launch {
                                     server.publish(event)
                                     hudLog(hud, "Событие сохранения отправлено для $playerId (через корутину)")
