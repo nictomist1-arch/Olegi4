@@ -17,15 +17,6 @@ import de.fabmax.kool.pipeline.ClearColorLoad   // ClearColorLoad - режим: 
 import de.fabmax.kool.modules.ui2.*             // UI2: addPanelSurface, Column, Row, Button, Text, dp, remember, mutableStateOf
 import jdk.jshell.execution.JdiInitiator
 import kotlinx.coroutines.flow.StateFlow
-import lesson3.EffectApplied
-import lesson3.HEALING_POTION
-import lesson3.ItemAdded
-import lesson3.ItemType
-import lesson3.ItemUsed
-import lesson3.SWORD
-import lesson3.putIntoSlot
-import lesson3.useSelected
-import lesson5.pushLog
 import java.awt.Choice
 import java.awt.dnd.DropTarget
 import java.io.File
@@ -505,8 +496,8 @@ fun main() = KoolApplication {
         }
 
         onUpdate {
-            server.update(Time.deltaT) // сервер обрабатывает очередь команд
-            client.syncFromServer() // клиент обновляет HUD из серверных данных
+            server.update(Time.deltaT)
+            client.syncFromServer()
         }
     }
 
