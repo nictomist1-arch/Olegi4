@@ -1,0 +1,9 @@
+{
+    "playerId": "Oleg",
+    "hp": 90,
+    "gold": 0,
+    "poisonTicksLeft": 3,
+    "attackCooldownMsLeft": 0,
+    "questState": "START",
+    "attackSpeedBuffTicksLeft": 5
+}

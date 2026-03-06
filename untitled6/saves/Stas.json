@@ -1,0 +1,9 @@
+{
+    "playerId": "Stas",
+    "hp": 80,
+    "gold": 0,
+    "poisonTicksLeft": 9,
+    "attackCooldownMsLeft": 200,
+    "questState": "START",
+    "attackSpeedBuffTicksLeft": 4
+}
