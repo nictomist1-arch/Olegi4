@@ -615,7 +615,7 @@ fun main() = KoolApplication {
                                 }
                         }
                     }
-                    "OFFERED" -> {
+                    "EVIL_END" -> {
                         Row {
                             Button("Помочь") {
                                 modifier
@@ -624,18 +624,18 @@ fun main() = KoolApplication {
                                         Shared.server?.tryPublish(ChoiceSelected(hud.activePlayerId.value, "alchemist", "help"))
                                     }
                             }
-                            Button("Драться") {
-                                modifier
-                                    .margin(start = 4.dp)
-                                    .onClick {
-                                        Shared.server?.tryPublish(ChoiceSelected(hud.activePlayerId.value, "alchemist", "evil"))
-                                    }
-                            }
                         }
                     }
                     "GOOD_END" -> {
                     }
-                    "EVIL_END" -> {
+                    "OFFERED" -> {
+                        Button("Драться") {
+                            modifier
+                                .margin(start = 4.dp)
+                                .onClick {
+                                    Shared.server?.tryPublish(ChoiceSelected(hud.activePlayerId.value, "alchemist", "evil"))
+                                }
+                        }
                     }
                 }
 
@@ -649,7 +649,7 @@ fun main() = KoolApplication {
 
                 Box {
                     modifier
-                        .height(200.dp)
+                        .height(400.dp)
                         .padding(8.dp)
 
                     Column {
@@ -684,3 +684,12 @@ fun main() = KoolApplication {
         }
     }
 }
+
+// 1. Что лучше:
+// b) Kopatel 360 100% без вариантов!!!!!
+// 2. Что такое takeLast(число) при выводе списков
+//takeLast(n) — это функция, которая возвращает последние n элементов коллекции.
+// 3. Чем suspend функция отличается от обычной
+//suspend  - это функция, которая может приостанавливать свое выполнение без блокировки потока.
+// 4. Что такое лямбда
+//Лямбда - это анонимная функция, которую можно передавать как аргумент, сохранять в переменную и использовать как обычное значение.
