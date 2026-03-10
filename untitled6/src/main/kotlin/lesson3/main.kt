@@ -234,7 +234,10 @@ fun main() = KoolApplication{
             is ItemUsed -> "ItemUsed: ${event.itemId}"
             is DamageDealt -> "DamageDealt: ${event.amount} - ${event.targetId}"
             is EffectApplied -> "EffectApplied: ${event.effectId} +${event.ticks}"
-            is QuestStepCompleted -> "QuestStepCompleted: ${event.questId} шаг: ${event.stepIndex+1}"
+            is QuestStepCompleted -> {
+                "QuestStepCompleted: ${event.questId} шаг: ${event.stepIndex+1}"
+            }
+
             else -> {}
         }
         pushLog(game, "[${event.playerId}] $line")
