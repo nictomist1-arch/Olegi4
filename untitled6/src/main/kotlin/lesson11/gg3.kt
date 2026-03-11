@@ -31,17 +31,15 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flatMapLatest
-import lesson10.HudState
 
-
-// Когда событий стаовится слишком много в игре появляется проблема
+// Когда событий становится слишком много в игре появляется проблема
 // 1. Если все системы слушают все события код быстро превратится в кашу
 // 2. Будет сложно понять кто на что реагирует из систем
 // 3. Такие системы сложно дебажить
 // 4. И так же надо жестко разделять события игрока Oleg от событий игрока Stas
 
 // Для исправления данных проблем надо использовать flow-операторы
-// filter - оставляет в потоке только то что подхдит по условию
+// filter - оставляет в потоке только то что подходит по условию
 // map - преобразует каждый элемент потока
 // onEach - делает нужное действие для каждого элемента в потоке но не изменяет сам поток
 // launchIn (scope) - запускает слушателя на фоне в нужным пространстве работы корутин
@@ -154,12 +152,16 @@ class GameServer {
 class DamageSystem(
     private val server: GameServer
 ) {
+    fun handleDamage(e: DamageDealt) {
+        server.updatePlayer(e.targetId) { player ->
+            val newHp = (player.hp - e.amount).coerceAtLeast(0)
+            player.copy(hp = newHp)
+        }
+    }
+
     fun onEvent(e: GameEvent) {
         if (e is DamageDealt) {
-            server.updatePlayer(e.targetId) { player ->
-                val newHp = (player.hp - e.amount).coerceAtLeast(0)
-                player.copy(hp = newHp)
-            }
+            handleDamage(e)
         }
     }
 }
@@ -217,51 +219,48 @@ class PoisonSystem(
 ) {
     private val poisonJobs = mutableMapOf<String, Job>()
 
-    fun onEvent(e: GameEvent, publishDamage: (DamageDealt) -> Unit) {
-        if (e is PoisonApplied) {
-            server.updatePlayer(e.playerId) { player ->
-                player.copy(poisonTicksLeft = player.poisonTicksLeft + e.ticks)
-            }
-
-            val job = scope.launch {
-                while (isActive && server.getPlayer(e.playerId).poisonTicksLeft > 0) {
-                    delay(e.intervalMs)
-
-                    server.updatePlayer(e.playerId) { player ->
-                        player.copy(poisonTicksLeft = (player.poisonTicksLeft - 1).coerceAtLeast(0))
-                    }
-
-                    publishDamage(DamageDealt(e.playerId, "self", e.damagePerTick))
-                }
-                poisonJobs.remove(e.playerId)
-            }
-            poisonJobs[e.playerId] = job
+    fun startPoison(e: PoisonApplied, publishDamage: (GameEvent) -> Unit) {
+        server.updatePlayer(e.playerId) { player ->
+            player.copy(poisonTicksLeft = player.poisonTicksLeft + e.ticks)
         }
+
+        val job = scope.launch {
+            while (isActive && server.getPlayer(e.playerId).poisonTicksLeft > 0) {
+                delay(e.intervalMs)
+
+                server.updatePlayer(e.playerId) { player ->
+                    player.copy(poisonTicksLeft = (player.poisonTicksLeft - 1).coerceAtLeast(0))
+                }
+
+                publishDamage(DamageDealt(e.playerId, "self", e.damagePerTick))
+            }
+        }
+        poisonJobs[e.playerId] = job
     }
 }
 
-class QuestSystem(private val server: GameServer){
+class QuestSystem(private val server: GameServer) {
     private val questId = "q_alchemist"
     private val npcId = "alchemist"
 
-    fun handleTalk(e: TalkedToNpc, publish: (GameEvent) -> Unit){
-        if(e.npcId != npcId) return
-
-        val player = server.getPlayer(e.playerId)
-        if (player.questState == "START"){
-            server.updatePlayer(e.playerId) {it.copy(questState = "OFFERED")}
-            publish(QuestStateChanged(e.playerId,questId,"OFFERED"))
-        }
-    }
-
-    fun handleChoice(e: ChoiceSelected, publish: (GameEvent) -> Unit){
+    fun handleTalk(e: TalkedToNpc, publish: (GameEvent) -> Unit) {
         if (e.npcId != npcId) return
 
         val player = server.getPlayer(e.playerId)
-        if(player.questState == "OFFERED"){
-            val newState = if(e.choiceId == "help") "GOOD_END" else "EVIL_END"
-            server.updatePlayer(e.playerId) {it.copy(questState = newState)}
-            publish(QuestStateChanged(e.playerId,questId, newState))
+        if (player.questState == "START") {
+            server.updatePlayer(e.playerId) { it.copy(questState = "OFFERED") }
+            publish(QuestStateChanged(e.playerId, questId, "OFFERED"))
+        }
+    }
+
+    fun handleChoice(e: ChoiceSelected, publish: (GameEvent) -> Unit) {
+        if (e.npcId != npcId) return
+
+        val player = server.getPlayer(e.playerId)
+        if (player.questState == "OFFERED") {
+            val newState = if (e.choiceId == "help") "GOOD_END" else "EVIL_END"
+            server.updatePlayer(e.playerId) { it.copy(questState = newState) }
+            publish(QuestStateChanged(e.playerId, questId, newState))
         }
     }
 }
@@ -285,7 +284,7 @@ class SaveSystem {
 }
 
 class HudState {
-    val activePlayerId = mutableStateOf("Oleg")
+    val activePlayerIdFlow = MutableStateFlow("Oleg")
 
     val activePlayerIdUi = mutableStateOf("Oleg")
     val hp = mutableStateOf(100)
@@ -301,4 +300,211 @@ class HudState {
 
 fun hudLog(hud: HudState, line: String) {
     hud.log.value = (hud.log.value + line).takeLast(20)
+}
+
+fun main() = KoolApplication {
+    val hud = HudState()
+
+    addScene {
+        defaultOrbitCamera()
+
+        addColorMesh {
+            generate { cube { colored() } }
+
+            shader = KslPbrShader {
+                color { vertexColor() }
+                metallic(0.7f)
+                roughness(0.4f)
+            }
+
+            onUpdate {
+                transform.rotate(45f.deg * Time.deltaT, Vec3f.X_AXIS)
+            }
+        }
+
+        lighting.singleDirectionalLight {
+            setup(Vec3f(-1f, -1f, -1f))
+            setColor(Color.WHITE, 5f)
+        }
+
+        val server = GameServer()
+        val saver = SaveSystem()
+        val damage = DamageSystem(server)
+        val cooldowns = CooldownSystem(server, coroutineScope)
+        val poison = PoisonSystem(server, coroutineScope)
+        val quests = QuestSystem(server)
+
+        server.events
+            .filter { it is AttackPressed }
+            .onEach { event ->
+                val e = event as AttackPressed
+
+                if (!cooldowns.canAttack(e.playerId)) {
+                    val msg = ServerMessage(e.playerId, "Нельзя атаковать: кулдаун")
+                    if (!server.tryPublish(msg)) {
+                        coroutineScope.launch { server.publish(msg) }
+                    }
+                    return@onEach
+                }
+
+                val dmg = DamageDealt(e.playerId, e.targetId, 10)
+
+                if (!server.tryPublish(dmg)) {
+                    coroutineScope.launch { server.publish(dmg) }
+                }
+
+                cooldowns.startCooldown(e.playerId)
+            }
+            .launchIn(coroutineScope)
+
+        server.events
+            .filter { it is DamageDealt }
+            .onEach { event ->
+                val e = event as DamageDealt
+                damage.handleDamage(e)
+            }
+            .launchIn(coroutineScope)
+
+        server.events
+            .filter { it is PoisonApplied }
+            .onEach { event ->
+                val e = event as PoisonApplied
+
+                poison.startPoison(e) { dmg ->
+                    if (!server.tryPublish(dmg)) {
+                        coroutineScope.launch { server.publish(dmg) }
+                    }
+                }
+            }
+            .launchIn(coroutineScope)
+
+        server.events
+            .filter { it is TalkedToNpc }
+            .onEach { event ->
+                val e = event as TalkedToNpc
+                quests.handleTalk(e) { newEvent ->
+                    if (!server.tryPublish(newEvent)) {
+                        coroutineScope.launch { server.publish(newEvent) }
+                    }
+                }
+            }
+            .launchIn(coroutineScope)
+
+        server.events
+            .filter { it is ChoiceSelected }
+            .onEach { event ->
+                val e = event as ChoiceSelected
+
+                quests.handleChoice(e) { newEvent ->
+                    if (!server.tryPublish(newEvent)) {
+                        coroutineScope.launch { server.publish(newEvent) }
+                    }
+                }
+            }
+            .launchIn(coroutineScope)
+
+        server.events
+            .filter { it is QuestStateChanged }
+            .onEach { event ->
+                val e = event as QuestStateChanged
+                val save = SaveRequested(e.playerId)
+
+                if (!server.tryPublish(save)) {
+                    coroutineScope.launch { server.publish(save) }
+                }
+            }
+            .launchIn(coroutineScope)
+
+        server.events
+            .filter { it is SaveRequested }
+            .onEach { event ->
+                val e = event as SaveRequested
+                val snapShot = server.getPlayer(e.playerId)
+                saver.save(snapShot)
+            }
+            .launchIn(coroutineScope)
+
+    }
+
+    addScene {
+        setupUiScene(ClearColorLoad)
+
+        val server = GameServer()
+
+        if (server != null) {
+            coroutineScope.launch {
+                server.players.collect { playersMap ->
+                    val pid = hud.activePlayerIdFlow.value
+                    val p = playersMap[pid] ?: return@collect
+
+                    hud.hp.value = p.hp
+                    hud.gold.value = p.gold
+                    hud.dummyHp.value = p.dummyHp
+                    hud.poisonTicksLeft.value = p.poisonTicksLeft
+                    hud.questState.value = p.questState
+                    hud.attackCooldownMsLeft.value = p.attackCooldownMsLeft
+                }
+            }
+
+            hud.activePlayerIdFlow
+                .flatMapLatest { pid ->
+                    server.events.filter { it.playerId == pid }
+                }
+                .map { event ->
+                    eventToText(event)
+                }
+                .onEach { line ->
+                    hudLog(hud, line)
+                }
+                .launchIn(coroutineScope)
+        }
+
+        addPanelSurface {
+            modifier
+                .align(AlignmentX.Start, AlignmentY.Top)
+                .margin(16.dp)
+                .background(RoundRectBackground(Color(0f, 0f, 0f, 0.6f), 14.dp))
+                .padding(12.dp)
+                .width(300.dp)
+
+            Column {
+                Text("Игрок: ${hud.activePlayerIdUi.use()}") { modifier.margin(bottom = 4.dp) }
+                // ИСПРАВЛЕНО: Добавлены скобки к use()
+                Text("HP: ${hud.hp.use()}/${hud.gold.use()}") { modifier.margin(bottom = 4.dp) }
+
+                Text("DummyHp: ${hud.dummyHp.use()}") { modifier.margin(bottom = 4.dp) }
+                Text("квест: ${hud.questState.use()}") { modifier.margin(bottom = 4.dp) }
+                Text("Тики яда: ${hud.poisonTicksLeft.use()}") { modifier.margin(bottom = 4.dp) }
+                Text("Кулдаун: ${hud.attackCooldownMsLeft.use()} мс") { modifier.margin(bottom = 16.dp) }
+
+                Row {
+                    Button("Смена игрока") {
+                        val currentPlayer = hud.activePlayerIdUi.value
+                        val newPlayer = if (currentPlayer == "Oleg") "Stas" else "Oleg"
+                        hud.activePlayerIdUi.value = newPlayer
+                        hudLog(hud, "Переключено на $newPlayer")
+                    }
+                }
+            }
+        }
+    }
+}
+
+fun eventToText(e: GameEvent): String {
+    return when (e) {
+        is AttackPressed -> "[${e.playerId}] AttackPressed по ${e.targetId}"
+        is DamageDealt -> "[${e.playerId}] DamageDealt ${e.amount} по ${e.targetId}"
+        is PoisonApplied -> "[${e.playerId}] PoisonApplied ${e.ticks}"
+        is ChoiceSelected -> "[${e.playerId}] ChoiceSelected ${e.choiceId}"
+        is QuestStateChanged -> "[${e.playerId}] QuestStateChanged ${e.newState}"
+        is TalkedToNpc -> "[${e.playerId}] TalkedToNpc с ${e.npcId}"
+        is SaveRequested -> "[${e.playerId}] SaveRequested"
+        is AttackSpeedBuffApplied -> "[${e.playerId}] AttackSpeedBuffApplied на ${e.ticks} тиков"
+        is ServerMessage -> "[${e.playerId}] ServerMessage: ${e.text}"
+        is CommandRejected -> "[${e.playerId}] CommandRejected: ${e.reason}"
+    }
+}
+
+object Shared {
+    var server: GameServer? = null
 }
