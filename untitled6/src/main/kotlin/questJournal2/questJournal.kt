@@ -32,7 +32,6 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flatMapLatest
-import lesson11.hudLog
 
 // QuestJournal 2.0 - список активных квестов, цели, маркеры, подсказки
 // QuestSystem будет обрабатывать
@@ -50,7 +49,6 @@ enum class QuestMarker {
     NONE
 }
 
-// Подготовка
 data class QuestJournalEntry(
     val questId: String,
     val title: String,        // Отображаемое название квеста
@@ -111,6 +109,11 @@ data class CmdSwitchPlayer(
     val newPlayerId: String
 ) : GameCommand
 
+data class CmdAddQuest(
+    override val playerId: String,
+    val questId: String
+) : GameCommand
+
 // ---------- Серверные данные квеста ---------- //
 
 data class QuestStateOnServer(
@@ -138,6 +141,13 @@ class QuestSystem {
                 else -> "Проход открыт"
             }
 
+            "q_blacksmith" -> when (step) {
+                0 -> "Найти кузнеца"
+                1 -> "Добыть руду"
+                2 -> "Выковать меч"
+                else -> "Квест завершен"
+            }
+
             else -> "Неизвестный квест"
         }
     }
@@ -154,6 +164,13 @@ class QuestSystem {
             "q_guard" -> when (step) {
                 0 -> "Идти к NPC: страж"
                 1 -> "Найди чем расплатиться со стражником"
+                else -> "Готово"
+            }
+
+            "q_blacksmith" -> when (step) {
+                0 -> "Идти в кузницу"
+                1 -> "Отправиться в шахту"
+                2 -> "Вернуться к кузнецу"
                 else -> "Готово"
             }
 
@@ -224,6 +241,7 @@ class GameServer {
             is CmdQuestPinned -> pinQuest(cmd.playerId, cmd.questId)
             is CmdQuestProgressed -> progressQuest(cmd.playerId, cmd.questId)
             is CmdSwitchPlayer -> {}
+            is CmdAddQuest -> addQuest(cmd.playerId, cmd.questId)
         }
     }
 
@@ -276,6 +294,7 @@ class GameServer {
                 val completed = when (q.questId) {
                     "q_alchemist" -> newStep >= 3
                     "q_guard" -> newStep >= 2
+                    "q_blacksmith" -> newStep >= 3
                     else -> false
                 }
 
@@ -283,6 +302,31 @@ class GameServer {
                 quests[i] = q.copy(isNew = false, step = newStep, status = newStatus)
             }
         }
+        setPlayerQuests(playerId, quests)
+
+        _events.emit(QuestJournalUpdated(playerId))
+    }
+
+    private suspend fun addQuest(playerId: String, questId: String) {
+        val quests = getPlayerQuests(playerId).toMutableList()
+
+        if (quests.any { it.questId == questId }) {
+            return
+        }
+
+        val newQuest = QuestStateOnServer(
+            questId = questId,
+            title = when (questId) {
+                "q_blacksmith" -> "Кузнечное дело"
+                else -> "Новый квест"
+            },
+            step = 0,
+            status = QuestStatus.ACTIVE,
+            isNew = true,
+            isPinned = false
+        )
+
+        quests.add(newQuest)
         setPlayerQuests(playerId, quests)
 
         _events.emit(QuestJournalUpdated(playerId))
@@ -390,6 +434,12 @@ fun main() = KoolApplication {
                             hud.selectedQuestId.value = null
                         }
                     }
+
+                    Button("Add Quest") {
+                        modifier.onClick {
+                            server.trySend(CmdAddQuest(hud.activePlayerUi.value, "q_blacksmith"))
+                        }
+                    }
                 }
 
                 Text("Активные квесты:") {modifier.margin(top=sizes.gap)}
@@ -397,7 +447,14 @@ fun main() = KoolApplication {
                 val entries = hud.questEntries.use()
                 val selectedId = hud.selectedQuestId.use()
 
-                for (q in entries){
+                val sortedEntries = entries.sortedWith(
+                    compareByDescending<QuestJournalEntry> { it.marker == QuestMarker.PINNED }
+                        .thenByDescending { it.marker == QuestMarker.NEW }
+                        .thenByDescending { it.status == QuestStatus.ACTIVE }
+                        .thenByDescending { it.marker == QuestMarker.COMPLETED }
+                )
+
+                for (q in sortedEntries) {
                     val symbol = markerSymbol(q.marker)
 
                     val line = "$symbol ${q.title}"
@@ -442,5 +499,3 @@ fun main() = KoolApplication {
         }
     }
 }
-
-
