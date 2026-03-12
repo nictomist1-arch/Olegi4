@@ -469,7 +469,6 @@ fun main() = KoolApplication {
 
             Column {
                 Text("Игрок: ${hud.activePlayerIdUi.use()}") { modifier.margin(bottom = 4.dp) }
-                // ИСПРАВЛЕНО: Добавлены скобки к use()
                 Text("HP: ${hud.hp.use()}/${hud.gold.use()}") { modifier.margin(bottom = 4.dp) }
 
                 Text("DummyHp: ${hud.dummyHp.use()}") { modifier.margin(bottom = 4.dp) }
