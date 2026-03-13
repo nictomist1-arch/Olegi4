@@ -33,9 +33,6 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flatMapLatest
 
-// QuestJournal 2.0 - список активных квестов, цели, маркеры, подсказки
-// QuestSystem будет обрабатывать
-
 enum class QuestStatus {
     ACTIVE,
     COMPLETED,
@@ -51,14 +48,12 @@ enum class QuestMarker {
 
 data class QuestJournalEntry(
     val questId: String,
-    val title: String,        // Отображаемое название квеста
+    val title: String,
     val status: QuestStatus,
-    val objectiveText: String, // Подсказка что делать дальше
+    val objectiveText: String,
     val marker: QuestMarker,
     val markerHint: String
 )
-
-// ------------ События, что будут влиять на UI и другие системы -------------- //
 
 sealed interface GameEvent {
     val playerId: String
@@ -83,7 +78,10 @@ data class QuestProgressed(
     val questId: String
 ) : GameEvent
 
-// --------------- Команды UI -> Сервер --------------------- //
+data class CommandRejected(
+    override val playerId: String,
+    val reason: String
+) : GameEvent
 
 sealed interface GameCommand {
     val playerId: String
@@ -114,7 +112,10 @@ data class CmdAddQuest(
     val questId: String
 ) : GameCommand
 
-// ---------- Серверные данные квеста ---------- //
+data class CmdGiveGold(
+    override val playerId: String,
+    val amount: Int
+) : GameCommand
 
 data class QuestStateOnServer(
     val questId: String,
@@ -200,7 +201,6 @@ class QuestSystem {
     }
 }
 
-// ---------------- Сервер - обработка квестов, принятие команд и рассылка событий ----------- //
 class GameServer {
     private val _events = MutableSharedFlow<GameEvent>(extraBufferCapacity = 64)
     val events: SharedFlow<GameEvent> = _events.asSharedFlow()
@@ -227,6 +227,14 @@ class GameServer {
 
     val questByPlayer: StateFlow<Map<String, List<QuestStateOnServer>>> = _questByPlayer.asStateFlow()
 
+    private val _playerGold = MutableStateFlow<Map<String, Int>>(
+        mapOf(
+            "Oleg" to 500,
+            "Stas" to 300
+        )
+    )
+    val playerGold: StateFlow<Map<String, Int>> = _playerGold.asStateFlow()
+
     fun start(scope: CoroutineScope) {
         scope.launch {
             commands.collect { cmd ->
@@ -242,7 +250,26 @@ class GameServer {
             is CmdQuestProgressed -> progressQuest(cmd.playerId, cmd.questId)
             is CmdSwitchPlayer -> {}
             is CmdAddQuest -> addQuest(cmd.playerId, cmd.questId)
+            is CmdGiveGold -> giveGold(cmd.playerId, cmd.amount)
         }
+    }
+
+    private suspend fun giveGold(playerId: String, amount: Int) {
+        val currentGold = _playerGold.value[playerId] ?: 0
+        val newGold = currentGold + amount
+
+        if (newGold > 999) {
+            val goldMap = _playerGold.value.toMutableMap()
+            goldMap[playerId] = 999
+            _playerGold.value = goldMap
+            _events.emit(CommandRejected(playerId, "Золото не может быть больше 999. Значение обрезано до 999."))
+        } else {
+            val goldMap = _playerGold.value.toMutableMap()
+            goldMap[playerId] = newGold
+            _playerGold.value = goldMap
+        }
+
+        _events.emit(QuestJournalUpdated(playerId))
     }
 
     private fun getPlayerQuests(playerId: String): List<QuestStateOnServer> {
@@ -422,6 +449,11 @@ fun main() = KoolApplication {
             Column {
                 Text("Игрок: ${hud.activePlayerUi.use()}") { modifier.margin(bottom = 4.dp) }
 
+                val goldAmount = server.playerGold.value[hud.activePlayerUi.value] ?: 0
+                Text("Золото: $goldAmount / 999") {
+                    modifier.margin(bottom = 8.dp)
+                }
+
                 Row {
                     Button ( "Switch Player" ){
                         modifier.margin(end=8.dp).onClick {
@@ -438,6 +470,18 @@ fun main() = KoolApplication {
                     Button("Add Quest") {
                         modifier.onClick {
                             server.trySend(CmdAddQuest(hud.activePlayerUi.value, "q_blacksmith"))
+                        }
+                    }
+
+                    Button("+50 Gold") {
+                        modifier.margin(start = 8.dp).onClick {
+                            server.trySend(CmdGiveGold(hud.activePlayerUi.value, 50))
+                        }
+                    }
+
+                    Button("+500 Gold") {
+                        modifier.margin(start = 8.dp).onClick {
+                            server.trySend(CmdGiveGold(hud.activePlayerUi.value, 500))
                         }
                     }
                 }
