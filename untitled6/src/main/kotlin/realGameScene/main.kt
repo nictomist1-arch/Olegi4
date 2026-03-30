@@ -1,6 +1,6 @@
 package realGameScene
 
-import de.fabmax.kool.KoolApplication           
+import de.fabmax.kool.KoolApplication
 import de.fabmax.kool.addScene
 import de.fabmax.kool.math.Vec3f
 import de.fabmax.kool.math.deg
