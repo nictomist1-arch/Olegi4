@@ -48,7 +48,8 @@ enum class QuestState{
     START,
     WAIT_HERB,
     GOOD_END,
-    EVIL_END
+    EVIL_END,
+    CHEST_AVAILABLE
 }
 
 enum class WorldObjectType{
@@ -81,15 +82,14 @@ data class PlayerState(
     val alchemistMemory: NpcMemory,
     val currentAreaId: String?,
     val hintText: String,
-    val gold: Int
+    val gold: Int,
+    val hasOpenedChest: Boolean = false
 )
 
 fun herbCount(player: PlayerState): Int{
     return player.inventory["herb"] ?: 0
 }
 
-
-//d = √((x₂ - x₁)² + (y₂ - y₁)²)
 fun distance2D(ax: Float, az: Float, bx: Float, bz: Float): Float{
     val dx = ax - bx
     val dz = az - bz
@@ -111,7 +111,8 @@ fun initialPlayerState(playerId: String): PlayerState{
             ),
             null,
             "Подойди к одной из локаций",
-            0
+            0,
+            false
         )
     }else{
         PlayerState(
@@ -127,7 +128,8 @@ fun initialPlayerState(playerId: String): PlayerState{
             ),
             null,
             "Подойди к одной из локаций",
-            0
+            0,
+            false
         )
     }
 }
@@ -169,7 +171,7 @@ fun buildAlchemistDialogue(player: PlayerState): DialogueView{
             if (herbs < 3){
                 DialogueView(
                     "Алхимик",
-                    "Недостаточно, надо $herbs/4 травы",
+                    "Недостаточно, надо $herbs/3 травы",
                     emptyList()
                 )
             }else{
@@ -177,18 +179,26 @@ fun buildAlchemistDialogue(player: PlayerState): DialogueView{
                     "Алхимик",
                     "найс, прет как белый, давай сюда",
                     listOf(
-                        DialogueOption("give_herb", "Отдать 4 травы")
+                        DialogueOption("give_herb", "Отдать 3 травы")
                     )
                 )
             }
         }
 
+        QuestState.CHEST_AVAILABLE -> {
+            DialogueView(
+                "Алхимик",
+                "Ты отлично справился! Я спрятал твою награду в сундуке неподалеку. Найди его и забери золото!",
+                emptyList()
+            )
+        }
+
         QuestState.GOOD_END -> {
             val text =
                 if (memory.receivedHerb){
-                    "Спасибо спасибо"
+                    "Спасибо за помощь! Надеюсь, ты нашел сундук с наградой."
                 }else{
-                    "Ты завершил квест, но нпс все забыл..."
+                    "Ты завершил квест, но npc все забыл..."
                 }
             DialogueView(
                 "Алхимик",
@@ -198,7 +208,6 @@ fun buildAlchemistDialogue(player: PlayerState): DialogueView{
         }
 
         QuestState.EVIL_END -> {
-
             DialogueView(
                 "Алхимик",
                 "ты проиграл бетмен",
@@ -308,7 +317,7 @@ data class ServerMessage(
 ): GameEvent
 
 class GameServer {
-    val worldObjects = listOf(
+    val worldObjects = mutableListOf(
         WorldObjectDef(
             "alchemist",
             WorldObjectType.ALCHEMIST,
@@ -320,13 +329,6 @@ class GameServer {
             "herb_source",
             WorldObjectType.HERB_SOURCE,
             3f,
-            0f,
-            1.7f
-        ),
-        WorldObjectDef(
-            "treasure_box",
-            WorldObjectType.CHEST,
-            7f,
             0f,
             1.7f
         )
@@ -386,7 +388,6 @@ class GameServer {
         return candidates.minByOrNull { obj ->
             distance2D(player.posX, player.posZ, obj.x, obj.z)
         }
-
     }
 
     private suspend fun refreshPlayerArea(playerId: String){
@@ -395,14 +396,25 @@ class GameServer {
 
         val oldAreaId = player.currentAreaId
         val newAreaId = nearest?.id
+        
+        val isChestAvailable = player.questState == QuestState.CHEST_AVAILABLE && !player.hasOpenedChest
 
-        if (oldAreaId == newAreaId){
-            val newHint =
-                when (newAreaId){
-                    "alchemist" -> "Подойди и нажми на алхимика"
-                    "herb_source" -> "собери траву"
-                    else -> "Подойди к одной из локаций"
-                }
+        if (!isChestAvailable && worldObjects.any { it.id == "treasure_box" }) {
+            worldObjects.removeAll { it.id == "treasure_box" }
+            _events.emit(ServerMessage(playerId, "Сундук исчез!"))
+        }
+
+        else if (isChestAvailable && !worldObjects.any { it.id == "treasure_box" }) {
+            worldObjects.add(
+                WorldObjectDef(
+                    "treasure_box",
+                    WorldObjectType.CHEST,
+                    7f,
+                    0f,
+                    1.7f
+                )
+            )
+            _events.emit(ServerMessage(playerId, "Появился сундук с сокровищами!"))
         }
 
         if (oldAreaId != null){
@@ -417,6 +429,7 @@ class GameServer {
             when (newAreaId){
                 "alchemist" -> "Подойди и нажми на алхимика"
                 "herb_source" -> "собери траву"
+                "treasure_box" -> "Открой сундук и получи награду!"
                 else -> "Подойди к одной из локаций"
             }
         updatePlayer(playerId) { p ->
@@ -460,8 +473,6 @@ class GameServer {
                                 timesTalked = oldMemory.timesTalked + 1
                             )
 
-
-
                             updatePlayer(cmd.playerId){ p ->
                                 p.copy(alchemistMemory = newMemory)
                             }
@@ -497,15 +508,35 @@ class GameServer {
                     }
 
                     WorldObjectType.CHEST -> {
+                        val player = getPlayerData(cmd.playerId)
+
+                        if (player.questState != QuestState.CHEST_AVAILABLE) {
+                            _events.emit(ServerMessage(cmd.playerId, "Этот сундук заперт..."))
+                            return
+                        }
+
+                        if (player.hasOpenedChest) {
+                            _events.emit(ServerMessage(cmd.playerId, "Сундук уже пуст"))
+                            return
+                        }
+
                         val oldCountGold = player.gold
-                        val newCountGold = oldCountGold + 1
+                        val newCountGold = oldCountGold + 10
 
                         updatePlayer(cmd.playerId) { p ->
-                            p.copy(gold = newCountGold)
+                            p.copy(
+                                gold = newCountGold,
+                                hasOpenedChest = true,
+                                questState = QuestState.GOOD_END
+                            )
                         }
+
+
+                        worldObjects.removeAll { it.id == "treasure_box" }
 
                         _events.emit(InteractedWithChest(cmd.playerId, obj.id))
                         _events.emit(GoldCountChanged(cmd.playerId, newCountGold))
+                        _events.emit(ServerMessage(cmd.playerId, "Ты открыл сундук и нашел 10 золотых монет! Квест полностью завершен!"))
                     }
                 }
             }
@@ -519,7 +550,7 @@ class GameServer {
                 }
 
                 when(cmd.optionId){
-                    "accepted_help" -> {
+                    "accept_help" -> {
                         val radiusHerb = distance2D(player.posX, player.posZ, 3f, 0f)
                         if (radiusHerb <= 1.7f){
                             if (player.questState != QuestState.START){
@@ -532,17 +563,17 @@ class GameServer {
                             }
 
                             _events.emit(QuestStateChanged(cmd.playerId, QuestState.WAIT_HERB))
-                            _events.emit(ServerMessage(cmd.playerId, "Алхимик просит собрать х3 травы"))
+                            _events.emit(ServerMessage(cmd.playerId, "Алхимик просит собрать 3 травы"))
                         }
                         else {
                             _events.emit(ServerMessage(cmd.playerId, "Ты отошел слишком далеко от Алхимика"))
                             return
                         }
-
                     }
                     "give_herb" -> {
                         if (player.questState != QuestState.WAIT_HERB) {
                             _events.emit(ServerMessage(cmd.playerId, "Сейчас нельзя сдать траву"))
+                            return
                         }
 
                         val herbs = herbCount(player)
@@ -564,17 +595,16 @@ class GameServer {
                             p.copy(
                                 inventory = newInventory,
                                 gold = p.gold + 5,
-                                questState = QuestState.GOOD_END,
+                                questState = QuestState.CHEST_AVAILABLE,
                                 alchemistMemory = newMemory
                             )
                         }
 
                         _events.emit(InventoryChanged(cmd.playerId, "herb", newCount))
                         _events.emit(NpcMemoryChanged(cmd.playerId, newMemory))
-                        _events.emit(QuestStateChanged(cmd.playerId, QuestState.GOOD_END))
-                        _events.emit(ServerMessage(cmd.playerId, "Алхимик получил траву и выдал тебе золото"))
+                        _events.emit(QuestStateChanged(cmd.playerId, QuestState.CHEST_AVAILABLE))
+                        _events.emit(ServerMessage(cmd.playerId, "Алхимик получил траву и выдал тебе золото! Теперь найди сундук с наградой!"))
                     }
-
                     else -> {
                         _events.emit(ServerMessage(cmd.playerId, "Неизвестный формат диалога"))
                     }
@@ -588,6 +618,7 @@ class GameServer {
             is CmdResetPlayer -> {
                 updatePlayer(cmd.playerId) { _ -> initialPlayerState(cmd.playerId)}
                 _events.emit(ServerMessage(cmd.playerId, "Игрок сброшен к начальному уровню"))
+                refreshPlayerArea(cmd.playerId)
             }
         }
     }
@@ -621,10 +652,10 @@ fun currentObjective(player: PlayerState): String{
     return when (player.questState){
         QuestState.START -> "Подойди к алхимику и начни разговор"
         QuestState.WAIT_HERB -> {
-            if (herbs < 3) "Собери х3 травы. Сейчас $herbs / 3"
+            if (herbs < 3) "Собери 3 травы. Сейчас $herbs / 3"
             else "Вернись к алхимику и отдай 3 травы"
         }
-
+        QuestState.CHEST_AVAILABLE -> "Найди сундук с сокровищами и открой его!"
         QuestState.GOOD_END -> "Квест завершен по хорошей ветке"
         QuestState.EVIL_END -> "Квест завершен по плохой ветке"
     }
@@ -633,8 +664,9 @@ fun currentObjective(player: PlayerState): String{
 fun currentZoneText(player: PlayerState): String{
     return when(player.currentAreaId){
         "alchemist" -> "Зона: Алхимик"
-        "herb_source" -> "Зона Источника травы"
-        else -> " открытое пространство"
+        "herb_source" -> "Зона: Источник травы"
+        "treasure_box" -> "Зона: Сундук с сокровищами"
+        else -> "Открытое пространство"
     }
 }
 
@@ -648,6 +680,7 @@ fun eventToText(e: GameEvent): String{
         is LeftArea -> "LeftArea ${e.areaId}"
         is InteractedWithNpc -> "InteractedWithNpc ${e.npcId}"
         is InteractedWithHerbSource -> "InteractedWithHerbSource ${e.sourceId}"
+        is InteractedWithChest -> "InteractedWithChest ${e.sourceId}"
         is InventoryChanged -> "InventoryChanged ${e.itemId} -> ${e.newCount}"
         is QuestStateChanged -> "QuestStateChanged ${e.newState}"
         is NpcMemoryChanged -> "NpcMemoryChanged Встретился: ${e.memory.hasMet}, сколько раз поговорил: ${e.memory.timesTalked}, отдал траву: ${e.memory.receivedHerb}"
@@ -706,6 +739,21 @@ fun main() = KoolApplication {
 
         herbNode.transform.translate(3f, 0f, 0f)
 
+        val chestNode = addColorMesh {
+            generate {
+                cube{
+                    colored()
+                }
+            }
+            shader = KslPbrShader{
+                color { vertexColor() }
+                metallic(0.5f)
+                roughness(0.3f)
+            }
+        }
+        chestNode.transform.translate(7f, 0f, 0f)
+        chestNode.isVisible = false
+
         lighting.singleDirectionalLight {
             setup(Vec3f(-1f, -1f, -1f))
             setColor(Color.WHITE, 5f)
@@ -753,6 +801,27 @@ fun main() = KoolApplication {
 
         herbNode.onUpdate{
             transform.rotate(20f.deg * Time.deltaT, Vec3f.X_AXIS)
+        }
+
+        chestNode.onUpdate {
+            if (chestNode.isVisible) {
+                transform.rotate(20f.deg * Time.deltaT, Vec3f.Y_AXIS)
+                val bobY = (sin(Time.gameTime * 3.0) * 0.1).toFloat()
+                transform.translate(0f, bobY, 0f)
+            }
+        }
+
+        var chestVisible = false
+        onUpdate {
+            val activeId = hud.activePlayerIdFlow.value
+            val player = server.getPlayerData(activeId)
+
+            val shouldShowChest = player.questState == QuestState.CHEST_AVAILABLE && !player.hasOpenedChest
+
+            if (shouldShowChest != chestVisible) {
+                chestVisible = shouldShowChest
+                chestNode.isVisible = chestVisible
+            }
         }
     }
 
