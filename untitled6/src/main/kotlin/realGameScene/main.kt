@@ -396,7 +396,7 @@ class GameServer {
 
         val oldAreaId = player.currentAreaId
         val newAreaId = nearest?.id
-        
+
         val isChestAvailable = player.questState == QuestState.CHEST_AVAILABLE && !player.hasOpenedChest
 
         if (!isChestAvailable && worldObjects.any { it.id == "treasure_box" }) {
@@ -967,3 +967,4 @@ fun main() = KoolApplication {
         }
     }
 }
+//GameServer
