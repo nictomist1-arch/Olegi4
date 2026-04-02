@@ -35,6 +35,7 @@
   <component name="FileTemplateManagerImpl">
     <option name="RECENT_TEMPLATES">
       <list>
+        <option value="Kotlin Class" />
         <option value="Kotlin File" />
         <option value="Kotlin Class" />
       </list>
@@ -60,7 +61,11 @@
     &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
     &quot;kotlin-language-version-configured&quot;: &quot;true&quot;,
     &quot;last_opened_file_path&quot;: &quot;C:/Users/User/Documents/clown/project/kotlin/Olegi4&quot;,
+<<<<<<< HEAD
     &quot;project.structure.last.edited&quot;: &quot;Problems&quot;,
+=======
+    &quot;project.structure.last.edited&quot;: &quot;Modules&quot;,
+>>>>>>> 428cf53fb0c7cd4e811bdf85ef065ce024c8c12c
     &quot;project.structure.proportion&quot;: &quot;0.0&quot;,
     &quot;project.structure.side.proportion&quot;: &quot;0.2&quot;
   }

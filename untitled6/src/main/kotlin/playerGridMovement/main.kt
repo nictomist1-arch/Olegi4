@@ -1,5 +1,11 @@
 package playerGridMovement
 
+<<<<<<< HEAD
+=======
+import cutScenes.DialogueOption
+import cutScenes.DialogueView
+import cutScenes.herbCount
+>>>>>>> 428cf53fb0c7cd4e811bdf85ef065ce024c8c12c
 import de.fabmax.kool.KoolApplication
 import de.fabmax.kool.addScene
 import de.fabmax.kool.math.Vec3f
@@ -63,8 +69,12 @@ data class WorldObjectDef(
     val type: WorldObjectType,
     val cellX: Float,
     val cellZ: Float,
+<<<<<<< HEAD
     val interactRadius: Float = 1.7f,
     var remainingUses: Int = 3 // !
+=======
+    val interactRadius: Float = 1.7f
+>>>>>>> 428cf53fb0c7cd4e811bdf85ef065ce024c8c12c
 )
 
 data class NpcMemory(
@@ -101,6 +111,12 @@ fun facingToYawDeg(facing: Facing): Float {
 }
 
 fun lerp(current: Float, target: Float, t: Float): Float {
+<<<<<<< HEAD
+=======
+    // линейная интерполяция
+    // Простыми словами - нужна для плавного перемещения current в сторону target
+    // Формула = current + (target - current) * t
+>>>>>>> 428cf53fb0c7cd4e811bdf85ef065ce024c8c12c
     return current + (target - current) * t
 }
 
@@ -116,12 +132,20 @@ fun initialPlayerState(playerId: String): PlayerState {
             "Stas",
             0,
             0,
+<<<<<<< HEAD
             QuestState.WAIT_HERB,
+=======
+            QuestState.START,
+>>>>>>> 428cf53fb0c7cd4e811bdf85ef065ce024c8c12c
             emptyMap(),
             NpcMemory(
                 true,
                 2,
+<<<<<<< HEAD
                 true
+=======
+                false
+>>>>>>> 428cf53fb0c7cd4e811bdf85ef065ce024c8c12c
             ),
             null,
             "Подойди к одной из локаций",
@@ -159,17 +183,30 @@ data class DialogueView(
     val option: List<DialogueOption>
 )
 
+<<<<<<< HEAD
 fun buildAlchemistDialogue(player: PlayerState): DialogueView {
     val herbs = herbCount(player)
     val memory = player.alchemistMemory
 
     return when(player.questState){
         QuestState.START -> {
+=======
+fun buildAlchemistDialogue(player:  PlayerState):  DialogueView {
+    val herbs =  herbCount(player)
+    val memory = player.alchemistMemory
+
+    return when(player.questState){
+         QuestState.START -> {
+>>>>>>> 428cf53fb0c7cd4e811bdf85ef065ce024c8c12c
             val greeting =
                 if (!memory.hasMet){
                     "О привет"
                 }else{
+<<<<<<< HEAD
                     "снова ты... я тебя знаю, ты ${player.playerId}"
+=======
+                    "снова ьы... я тебя знаю, ты ${player.playerId}"
+>>>>>>> 428cf53fb0c7cd4e811bdf85ef065ce024c8c12c
                 }
             DialogueView(
                 "Алхимик",
@@ -181,7 +218,11 @@ fun buildAlchemistDialogue(player: PlayerState): DialogueView {
             )
         }
 
+<<<<<<< HEAD
         QuestState.WAIT_HERB ->{
+=======
+         QuestState.WAIT_HERB ->{
+>>>>>>> 428cf53fb0c7cd4e811bdf85ef065ce024c8c12c
             if (herbs < 3){
                 DialogueView(
                     "Алхимик",
@@ -199,7 +240,11 @@ fun buildAlchemistDialogue(player: PlayerState): DialogueView {
             }
         }
 
+<<<<<<< HEAD
         QuestState.GOOD_END -> {
+=======
+         QuestState.GOOD_END -> {
+>>>>>>> 428cf53fb0c7cd4e811bdf85ef065ce024c8c12c
             val text =
                 if (memory.receivedHerb){
                     "Спасибо за помощь! Надеюсь, ты нашел сундук с наградой."
@@ -213,7 +258,11 @@ fun buildAlchemistDialogue(player: PlayerState): DialogueView {
             )
         }
 
+<<<<<<< HEAD
         QuestState.EVIL_END -> {
+=======
+         QuestState.EVIL_END -> {
+>>>>>>> 428cf53fb0c7cd4e811bdf85ef065ce024c8c12c
             DialogueView(
                 "Алхимик",
                 "ты проиграл бетмен",
@@ -233,10 +282,13 @@ data class CmdStepMove(
     val stepZ: Int
 ): GameCommand
 
+<<<<<<< HEAD
 data class CmdDashForward(
     override val playerId: String
 ): GameCommand
 
+=======
+>>>>>>> 428cf53fb0c7cd4e811bdf85ef065ce024c8c12c
 data class CmdInteract(
     override val playerId: String
 ): GameCommand
@@ -324,16 +376,26 @@ class GameServer {
     private val minZ = -4
     private val maxZ = 4
 
+<<<<<<< HEAD
     // !
+=======
+>>>>>>> 428cf53fb0c7cd4e811bdf85ef065ce024c8c12c
     private val blockedCells = setOf(
         GridPos(-1, 1),
         GridPos(0, 1),
         GridPos(1, 1),
+<<<<<<< HEAD
         GridPos(1, 0),
         GridPos(-2, 0)  // !
     )
 
     // !
+=======
+        GridPos(1, 0)
+    )
+
+    // имитация маленькой стены для проверки запрета ходьбы
+>>>>>>> 428cf53fb0c7cd4e811bdf85ef065ce024c8c12c
     val worldObjects = mutableListOf(
         WorldObjectDef(
             "alchemist",
@@ -347,8 +409,12 @@ class GameServer {
             WorldObjectType.HERB_SOURCE,
             3f,
             0f,
+<<<<<<< HEAD
             1.7f,
             remainingUses = 3  // !
+=======
+            1.7f
+>>>>>>> 428cf53fb0c7cd4e811bdf85ef065ce024c8c12c
         )
     )
 
@@ -426,6 +492,10 @@ class GameServer {
         val oldAreaId = player.currentAreaId
         val newAreaId = nearest?.id
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> 428cf53fb0c7cd4e811bdf85ef065ce024c8c12c
         if (oldAreaId != null){
             _events.emit(LeftArea(playerId, oldAreaId))
         }
@@ -449,6 +519,7 @@ class GameServer {
         }
     }
 
+<<<<<<< HEAD
     private suspend fun tryMove(playerId: String, deltaX: Int, deltaZ: Int, shouldSetFacing: Boolean = true): Boolean {
         val player = getPlayerData(playerId)
         val targetX = player.gridX + deltaX
@@ -537,6 +608,54 @@ class GameServer {
                     _events.emit(ServerMessage(cmd.playerId, "Рывок вперед! +2 клетки"))
                     refreshPlayerArea(cmd.playerId)
                 }
+=======
+    private suspend fun processCommand(cmd: GameCommand){
+        when(cmd){
+            is CmdStepMove -> {
+                val player = getPlayerData(cmd.playerId)
+                val targetX = player.gridX + cmd.stepX
+                val targetZ = player.gridZ + cmd.stepZ
+
+                val newFacing =
+                    when{
+                        cmd.stepX < 0 -> Facing.LEFT
+                        cmd.stepX > 0 -> Facing.RIGHT
+                        cmd.stepZ < 0 -> Facing.FORWARD
+                        else -> Facing.BACK
+                    }
+
+                if(!isCellInsideMap(targetX, targetZ)){
+                    _events.emit(ServerMessage(cmd.playerId, "Нельзя уйти за границы карты"))
+                    _events.emit(MovedBlocked(cmd.playerId, targetX, targetZ))
+
+                    updatePlayer(cmd.playerId){ p ->
+                        p.copy(facing = newFacing)
+                    }
+                    return
+                }
+
+                if (isCellBlocked(targetX, targetZ)){
+                    _events.emit(ServerMessage(cmd.playerId, "Путь заблокирован стеной"))
+                    _events.emit(MovedBlocked(cmd.playerId, targetX, targetZ))
+
+                    updatePlayer(cmd.playerId){ p ->
+                        p.copy(facing = newFacing)
+                    }
+                    return
+                }
+
+                updatePlayer(cmd.playerId){ p ->
+                    p.copy(
+                        gridX = targetX,
+                        gridZ = targetZ,
+                        facing = newFacing
+                    )
+                }
+
+                _events.emit(PlayerMoved(cmd.playerId, targetX, targetZ))
+
+                refreshPlayerArea(cmd.playerId)
+>>>>>>> 428cf53fb0c7cd4e811bdf85ef065ce024c8c12c
             }
 
             is CmdInteract -> {
@@ -570,6 +689,7 @@ class GameServer {
                     }
 
                     WorldObjectType.HERB_SOURCE -> {
+<<<<<<< HEAD
                         // !
                         val herbSource = worldObjects.find { it.id == obj.id }
                         if (herbSource != null && herbSource.remainingUses <= 0) {
@@ -577,6 +697,8 @@ class GameServer {
                             return
                         }
 
+=======
+>>>>>>> 428cf53fb0c7cd4e811bdf85ef065ce024c8c12c
                         val oldAlchemistMemory = player.alchemistMemory
                         val newAlchemistMemory = oldAlchemistMemory.copy(
                             sawPlayerNearSource = true
@@ -597,12 +719,15 @@ class GameServer {
                             p.copy(inventory = newInventory)
                         }
 
+<<<<<<< HEAD
                         // !
                         if (herbSource != null) {
                             herbSource.remainingUses--
                             _events.emit(ServerMessage(cmd.playerId, "Трава собрана! Осталось использований: ${herbSource.remainingUses}"))
                         }
 
+=======
+>>>>>>> 428cf53fb0c7cd4e811bdf85ef065ce024c8c12c
                         _events.emit(InteractedWithHerbSource(cmd.playerId, obj.id))
                         _events.emit(InventoryChanged(cmd.playerId, "herb", newCount))
                     }
@@ -678,12 +803,15 @@ class GameServer {
             }
 
             is CmdResetPlayer -> {
+<<<<<<< HEAD
                 // !
                 val herbSource = worldObjects.find { it.id == "herb_source" }
                 if (herbSource != null) {
                     herbSource.remainingUses = 3
                 }
 
+=======
+>>>>>>> 428cf53fb0c7cd4e811bdf85ef065ce024c8c12c
                 updatePlayer(cmd.playerId) { _ -> initialPlayerState(cmd.playerId)}
                 _events.emit(ServerMessage(cmd.playerId, "Игрок сброшен к начальному уровню"))
                 refreshPlayerArea(cmd.playerId)
@@ -775,6 +903,11 @@ fun main() = KoolApplication {
                         roughness(0.25f)
                     }
                 }.transform.translate(x.toFloat(), -1.2f, z.toFloat())
+<<<<<<< HEAD
+=======
+                // Сдвигаем плитку (кубы - пол) в мире
+                // y = -1.2f опускаем пол ниже игрока
+>>>>>>> 428cf53fb0c7cd4e811bdf85ef065ce024c8c12c
             }
         }
 
@@ -819,13 +952,20 @@ fun main() = KoolApplication {
             }
         }
 
+<<<<<<< HEAD
         // !
+=======
+>>>>>>> 428cf53fb0c7cd4e811bdf85ef065ce024c8c12c
         val wallCells = listOf(
             GridPos(-1, 1),
             GridPos(0, 1),
             GridPos(1, 1),
+<<<<<<< HEAD
             GridPos(1, 0),
             GridPos(-2, 0)  // !
+=======
+            GridPos(1, 0)
+>>>>>>> 428cf53fb0c7cd4e811bdf85ef065ce024c8c12c
         )
 
         for (cell in wallCells) {
@@ -923,7 +1063,11 @@ fun main() = KoolApplication {
                     modifier.margin(bottom = sizes.gap)
                 }
 
+<<<<<<< HEAD
                 Text("Позиция: x=${"%d".format(player.gridX)} z=${"%d".format(player.gridZ)}") {}
+=======
+                Text("Позиция: x=${"%.1f".format(player.gridX)} z=${"%.1f".format(player.gridZ)}") {}
+>>>>>>> 428cf53fb0c7cd4e811bdf85ef065ce024c8c12c
                 Text("Смотрит: ${player.facing}") { modifier.margin(bottom = sizes.smallGap)}
                 Text("Quest State: ${player.questState}") {
                     modifier.font(sizes.smallText)
@@ -970,7 +1114,11 @@ fun main() = KoolApplication {
                     }
                     Button("Право") {
                         modifier.margin(end = 8.dp).onClick {
+<<<<<<< HEAD
                             server.trySend(CmdStepMove(player.playerId, stepX = 1, stepZ = 0))
+=======
+                            server.trySend(CmdStepMove(player.playerId, stepX = 0, stepZ = -1))
+>>>>>>> 428cf53fb0c7cd4e811bdf85ef065ce024c8c12c
                         }
                     }
                     Button("Вперед") {
@@ -980,6 +1128,7 @@ fun main() = KoolApplication {
                     }
                     Button("Назад") {
                         modifier.margin(end = 8.dp).onClick {
+<<<<<<< HEAD
                             server.trySend(CmdStepMove(player.playerId, stepX = 0, stepZ = 1))
                         }
                     }
@@ -995,6 +1144,12 @@ fun main() = KoolApplication {
                     }
                 }
 
+=======
+                            server.trySend(CmdStepMove(player.playerId, stepX = 0, stepZ = -1))
+                        }
+                    }
+                }
+>>>>>>> 428cf53fb0c7cd4e811bdf85ef065ce024c8c12c
                 Text("Взаимодействия") { modifier.margin(top = sizes.gap) }
 
                 Row {
@@ -1037,4 +1192,10 @@ fun main() = KoolApplication {
             }
         }
     }
+<<<<<<< HEAD
 }
+=======
+}
+
+
+>>>>>>> 428cf53fb0c7cd4e811bdf85ef065ce024c8c12c
