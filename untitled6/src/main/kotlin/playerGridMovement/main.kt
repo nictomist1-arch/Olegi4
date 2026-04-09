@@ -1,8 +1,8 @@
+
+// 1.1 - c, 1.2 - d, 1.3 - c, 1.3 - d.
+
 package playerGridMovement
 
-import cutScenes.DialogueOption
-import cutScenes.DialogueView
-import cutScenes.herbCount
 import de.fabmax.kool.KoolApplication
 import de.fabmax.kool.addScene
 import de.fabmax.kool.math.Vec3f
@@ -66,7 +66,8 @@ data class WorldObjectDef(
     val type: WorldObjectType,
     val cellX: Float,
     val cellZ: Float,
-    val interactRadius: Float = 1.7f
+    val interactRadius: Float = 1.7f,
+    var remainingUses: Int = 3
 )
 
 data class NpcMemory(
@@ -103,9 +104,6 @@ fun facingToYawDeg(facing: Facing): Float {
 }
 
 fun lerp(current: Float, target: Float, t: Float): Float {
-    // линейная интерполяция
-    // Простыми словами - нужна для плавного перемещения current в сторону target
-    // Формула = current + (target - current) * t
     return current + (target - current) * t
 }
 
@@ -121,12 +119,12 @@ fun initialPlayerState(playerId: String): PlayerState {
             "Stas",
             0,
             0,
-            QuestState.START,
+            QuestState.WAIT_HERB,
             emptyMap(),
             NpcMemory(
                 true,
                 2,
-                false
+                true
             ),
             null,
             "Подойди к одной из локаций",
@@ -164,17 +162,17 @@ data class DialogueView(
     val option: List<DialogueOption>
 )
 
-fun buildAlchemistDialogue(player:  PlayerState):  DialogueView {
-    val herbs =  herbCount(player)
+fun buildAlchemistDialogue(player: PlayerState): DialogueView {
+    val herbs = herbCount(player)
     val memory = player.alchemistMemory
 
     return when(player.questState){
-         QuestState.START -> {
+        QuestState.START -> {
             val greeting =
                 if (!memory.hasMet){
                     "О привет"
                 }else{
-                    "снова ьы... я тебя знаю, ты ${player.playerId}"
+                    "снова ты... я тебя знаю, ты ${player.playerId}"
                 }
             DialogueView(
                 "Алхимик",
@@ -186,7 +184,7 @@ fun buildAlchemistDialogue(player:  PlayerState):  DialogueView {
             )
         }
 
-         QuestState.WAIT_HERB ->{
+        QuestState.WAIT_HERB ->{
             if (herbs < 3){
                 DialogueView(
                     "Алхимик",
@@ -204,7 +202,7 @@ fun buildAlchemistDialogue(player:  PlayerState):  DialogueView {
             }
         }
 
-         QuestState.GOOD_END -> {
+        QuestState.GOOD_END -> {
             val text =
                 if (memory.receivedHerb){
                     "Спасибо за помощь! Надеюсь, ты нашел сундук с наградой."
@@ -218,7 +216,7 @@ fun buildAlchemistDialogue(player:  PlayerState):  DialogueView {
             )
         }
 
-         QuestState.EVIL_END -> {
+        QuestState.EVIL_END -> {
             DialogueView(
                 "Алхимик",
                 "ты проиграл бетмен",
@@ -236,6 +234,10 @@ data class CmdStepMove(
     override val playerId: String,
     val stepX: Int,
     val stepZ: Int
+): GameCommand
+
+data class CmdDashForward(
+    override val playerId: String
 ): GameCommand
 
 data class CmdInteract(
@@ -329,10 +331,10 @@ class GameServer {
         GridPos(-1, 1),
         GridPos(0, 1),
         GridPos(1, 1),
-        GridPos(1, 0)
+        GridPos(1, 0),
+        GridPos(-2, 0)
     )
 
-    // имитация маленькой стены для проверки запрета ходьбы
     val worldObjects = mutableListOf(
         WorldObjectDef(
             "alchemist",
@@ -346,7 +348,8 @@ class GameServer {
             WorldObjectType.HERB_SOURCE,
             3f,
             0f,
-            1.7f
+            1.7f,
+            remainingUses = 3
         )
     )
 
@@ -424,7 +427,6 @@ class GameServer {
         val oldAreaId = player.currentAreaId
         val newAreaId = nearest?.id
 
-
         if (oldAreaId != null){
             _events.emit(LeftArea(playerId, oldAreaId))
         }
@@ -448,52 +450,90 @@ class GameServer {
         }
     }
 
+    private suspend fun tryMove(playerId: String, deltaX: Int, deltaZ: Int, shouldSetFacing: Boolean = true): Boolean {
+        val player = getPlayerData(playerId)
+        val targetX = player.gridX + deltaX
+        val targetZ = player.gridZ + deltaZ
+
+        val newFacing = if (shouldSetFacing) {
+            when {
+                deltaX < 0 -> Facing.LEFT
+                deltaX > 0 -> Facing.RIGHT
+                deltaZ < 0 -> Facing.FORWARD
+                else -> Facing.BACK
+            }
+        } else {
+            player.facing
+        }
+
+        if(!isCellInsideMap(targetX, targetZ)){
+            _events.emit(ServerMessage(playerId, "Нельзя уйти за границы карты"))
+            _events.emit(MovedBlocked(playerId, targetX, targetZ))
+            if (shouldSetFacing) {
+                updatePlayer(playerId){ p -> p.copy(facing = newFacing) }
+            }
+            return false
+        }
+
+        if (isCellBlocked(targetX, targetZ)){
+            _events.emit(ServerMessage(playerId, "Путь заблокирован стеной"))
+            _events.emit(MovedBlocked(playerId, targetX, targetZ))
+            if (shouldSetFacing) {
+                updatePlayer(playerId){ p -> p.copy(facing = newFacing) }
+            }
+            return false
+        }
+
+        updatePlayer(playerId){ p ->
+            p.copy(
+                gridX = targetX,
+                gridZ = targetZ,
+                facing = if (shouldSetFacing) newFacing else p.facing
+            )
+        }
+
+        _events.emit(PlayerMoved(playerId, targetX, targetZ))
+        return true
+    }
+
     private suspend fun processCommand(cmd: GameCommand){
         when(cmd){
             is CmdStepMove -> {
+                if (tryMove(cmd.playerId, cmd.stepX, cmd.stepZ, true)) {
+                    refreshPlayerArea(cmd.playerId)
+                }
+            }
+
+            is CmdDashForward -> {
                 val player = getPlayerData(cmd.playerId)
-                val targetX = player.gridX + cmd.stepX
-                val targetZ = player.gridZ + cmd.stepZ
 
-                val newFacing =
-                    when{
-                        cmd.stepX < 0 -> Facing.LEFT
-                        cmd.stepX > 0 -> Facing.RIGHT
-                        cmd.stepZ < 0 -> Facing.FORWARD
-                        else -> Facing.BACK
-                    }
+                val (deltaX, deltaZ) = when (player.facing) {
+                    Facing.FORWARD -> Pair(0, -2)
+                    Facing.BACK -> Pair(0, 2)
+                    Facing.LEFT -> Pair(-2, 0)
+                    Facing.RIGHT -> Pair(2, 0)
+                }
 
-                if(!isCellInsideMap(targetX, targetZ)){
-                    _events.emit(ServerMessage(cmd.playerId, "Нельзя уйти за границы карты"))
-                    _events.emit(MovedBlocked(cmd.playerId, targetX, targetZ))
+                val step1X = player.gridX + deltaX/2
+                val step1Z = player.gridZ + deltaZ/2
+                val step2X = player.gridX + deltaX
+                val step2Z = player.gridZ + deltaZ
 
-                    updatePlayer(cmd.playerId){ p ->
-                        p.copy(facing = newFacing)
-                    }
+                if (!isCellInsideMap(step1X, step1Z) || isCellBlocked(step1X, step1Z)) {
+                    _events.emit(ServerMessage(cmd.playerId, "Рывок невозможен - препятствие на пути"))
                     return
                 }
 
-                if (isCellBlocked(targetX, targetZ)){
-                    _events.emit(ServerMessage(cmd.playerId, "Путь заблокирован стеной"))
-                    _events.emit(MovedBlocked(cmd.playerId, targetX, targetZ))
-
-                    updatePlayer(cmd.playerId){ p ->
-                        p.copy(facing = newFacing)
-                    }
+                if (!isCellInsideMap(step2X, step2Z) || isCellBlocked(step2X, step2Z)) {
+                    _events.emit(ServerMessage(cmd.playerId, "Рывок невозможен - препятствие на пути"))
                     return
                 }
 
-                updatePlayer(cmd.playerId){ p ->
-                    p.copy(
-                        gridX = targetX,
-                        gridZ = targetZ,
-                        facing = newFacing
-                    )
+
+                if (tryMove(cmd.playerId, deltaX, deltaZ, false)) {
+                    _events.emit(ServerMessage(cmd.playerId, "Рывок вперед! +2 клетки"))
+                    refreshPlayerArea(cmd.playerId)
                 }
-
-                _events.emit(PlayerMoved(cmd.playerId, targetX, targetZ))
-
-                refreshPlayerArea(cmd.playerId)
             }
 
             is CmdInteract -> {
@@ -527,6 +567,13 @@ class GameServer {
                     }
 
                     WorldObjectType.HERB_SOURCE -> {
+
+                        val herbSource = worldObjects.find { it.id == obj.id }
+                        if (herbSource != null && herbSource.remainingUses <= 0) {
+                            _events.emit(ServerMessage(cmd.playerId, "ZVZVZVZVZVZVZVZVZVZ"))
+                            return
+                        }
+
                         val oldAlchemistMemory = player.alchemistMemory
                         val newAlchemistMemory = oldAlchemistMemory.copy(
                             sawPlayerNearSource = true
@@ -545,6 +592,12 @@ class GameServer {
 
                         updatePlayer(cmd.playerId) { p ->
                             p.copy(inventory = newInventory)
+                        }
+
+
+                        if (herbSource != null) {
+                            herbSource.remainingUses--
+                            _events.emit(ServerMessage(cmd.playerId, "Трава собрана! Осталось использований: ${herbSource.remainingUses}"))
                         }
 
                         _events.emit(InteractedWithHerbSource(cmd.playerId, obj.id))
@@ -622,6 +675,12 @@ class GameServer {
             }
 
             is CmdResetPlayer -> {
+
+                val herbSource = worldObjects.find { it.id == "herb_source" }
+                if (herbSource != null) {
+                    herbSource.remainingUses = 3
+                }
+
                 updatePlayer(cmd.playerId) { _ -> initialPlayerState(cmd.playerId)}
                 _events.emit(ServerMessage(cmd.playerId, "Игрок сброшен к начальному уровню"))
                 refreshPlayerArea(cmd.playerId)
@@ -638,8 +697,10 @@ class HudState{
     val playerSnapShot = mutableStateOf(initialPlayerState("Oleg"))
 
     val log = mutableStateOf<List<String>>(emptyList())
-}
 
+    var cubeToRotate: Any? = null
+    var cubeStack: MutableList<Any>? = null
+}
 fun hudLog(hud: HudState, line: String){
     hud.log.value = (hud.log.value + line).takeLast(20)
 }
@@ -713,8 +774,6 @@ fun main() = KoolApplication {
                         roughness(0.25f)
                     }
                 }.transform.translate(x.toFloat(), -1.2f, z.toFloat())
-                // Сдвигаем плитку (кубы - пол) в мире
-                // y = -1.2f опускаем пол ниже игрока
             }
         }
 
@@ -759,11 +818,13 @@ fun main() = KoolApplication {
             }
         }
 
+
         val wallCells = listOf(
             GridPos(-1, 1),
             GridPos(0, 1),
             GridPos(1, 1),
-            GridPos(1, 0)
+            GridPos(1, 0),
+            GridPos(-2, 0)
         )
 
         for (cell in wallCells) {
@@ -821,6 +882,17 @@ fun main() = KoolApplication {
 
             lastAppliedYaw = targetYaw
         }
+
+        val rotatableCube = addColorMesh {
+            generate { cube { colored() } }
+            shader = KslPbrShader {
+                color { vertexColor() }
+                metallic(0f)
+                roughness(0.25f)
+            }
+        }
+        rotatableCube.transform.translate(0f, 0f, 3f)
+        hud.cubeToRotate = rotatableCube
     }
     addScene {
         setupUiScene(ClearColorLoad)
@@ -861,7 +933,7 @@ fun main() = KoolApplication {
                     modifier.margin(bottom = sizes.gap)
                 }
 
-                Text("Позиция: x=${"%.1f".format(player.gridX)} z=${"%.1f".format(player.gridZ)}") {}
+                Text("Позиция: x=${"%d".format(player.gridX)} z=${"%d".format(player.gridZ)}") {}
                 Text("Смотрит: ${player.facing}") { modifier.margin(bottom = sizes.smallGap)}
                 Text("Quest State: ${player.questState}") {
                     modifier.font(sizes.smallText)
@@ -908,7 +980,7 @@ fun main() = KoolApplication {
                     }
                     Button("Право") {
                         modifier.margin(end = 8.dp).onClick {
-                            server.trySend(CmdStepMove(player.playerId, stepX = 0, stepZ = -1))
+                            server.trySend(CmdStepMove(player.playerId, stepX = 1, stepZ = 0))
                         }
                     }
                     Button("Вперед") {
@@ -918,16 +990,100 @@ fun main() = KoolApplication {
                     }
                     Button("Назад") {
                         modifier.margin(end = 8.dp).onClick {
-                            server.trySend(CmdStepMove(player.playerId, stepX = 0, stepZ = -1))
+                            server.trySend(CmdStepMove(player.playerId, stepX = 0, stepZ = 1))
                         }
                     }
                 }
+
+                Text("Специальные движения") { modifier.margin(top = sizes.gap) }
+                Row {
+                    Button("Рывок вперед (2 клетки)") {
+                        modifier.margin(end = 8.dp).onClick {
+                            server.trySend(CmdDashForward(player.playerId))
+                        }
+                    }
+                }
+
                 Text("Взаимодействия") { modifier.margin(top = sizes.gap) }
 
                 Row {
                     Button("Потрогать ближайшего") {
                         modifier.margin(end = 8.dp).onClick{
                             server.trySend(CmdInteract(player.playerId))
+                        }
+                    }
+                }
+
+                Text("Управление объектом") { modifier.margin(top = sizes.gap) }
+
+                Row {
+                    Button("Вращать влево (-10°)") {
+                        modifier.margin(end = 8.dp).onClick {
+                            val cube = hud.cubeToRotate
+                            if (cube != null) {
+                                try {
+                                    val transformField = cube.javaClass.getDeclaredField("transform")
+                                    transformField.isAccessible = true
+                                    val transform = transformField.get(cube)
+                                    val rotateMethod = transform.javaClass.getMethod("rotate", Float::class.java, Vec3f::class.java)
+                                    rotateMethod.invoke(transform, -10f * Math.PI.toFloat() / 180f, Vec3f.Y_AXIS)
+                                    hudLog(hud, "Поворот куба на -10°")
+                                } catch (e: Exception) {
+                                    hudLog(hud, "Ошибка: ${e.message}")
+                                }
+                            }
+                        }
+                    }
+
+                    Button("Вращать вправо (+10°)") {
+                        modifier.margin(end = 8.dp).onClick {
+                            val cube = hud.cubeToRotate
+                            if (cube != null) {
+                                try {
+                                    val transformField = cube.javaClass.getDeclaredField("transform")
+                                    transformField.isAccessible = true
+                                    val transform = transformField.get(cube)
+                                    val rotateMethod = transform.javaClass.getMethod("rotate", Float::class.java, Vec3f::class.java)
+                                    rotateMethod.invoke(transform, 10f * Math.PI.toFloat() / 180f, Vec3f.Y_AXIS)
+                                    hudLog(hud, "Поворот куба на +10°")
+                                } catch (e: Exception) {
+                                    hudLog(hud, "Ошибка: ${e.message}")
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Text("Добавление кубов") { modifier.margin(top = sizes.gap) }
+
+                Row {
+                    Button("Добавить куб сверху") {
+                        modifier.onClick {
+                            val newCube = this@addScene.addColorMesh {
+                                generate {
+                                    cube {
+                                        colored()
+                                    }
+                                }
+                                shader = KslPbrShader {
+                                    color { vertexColor() }
+                                    metallic(0f)
+                                    roughness(0.25f)
+                                }
+                            }
+
+                            if (hud.cubeStack == null) {
+
+                                newCube.transform.translate(2f, 0f, -2f)
+                                hud.cubeStack = mutableListOf(newCube)
+                                hudLog(hud, "Создан первый куб в позиции (2, 0, -2)")
+                            } else {
+                                val currentStack = hud.cubeStack!!
+                                val topY = currentStack.size
+                                newCube.transform.translate(2f, topY.toFloat(), -2f)
+                                currentStack.add(newCube)
+                                hudLog(hud, "Добавлен новый куб сверху (всего: ${currentStack.size})")
+                            }
                         }
                     }
                 }
@@ -965,5 +1121,3 @@ fun main() = KoolApplication {
         }
     }
 }
-
-
