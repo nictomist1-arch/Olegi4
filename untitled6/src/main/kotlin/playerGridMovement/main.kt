@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.collect
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -698,8 +699,9 @@ class HudState{
 
     val log = mutableStateOf<List<String>>(emptyList())
 
-    var cubeToRotate: Any? = null
-    var cubeStack: MutableList<Any>? = null
+    var rotateCubeLeft: (() -> Unit)? = null
+    var rotateCubeRight: (() -> Unit)? = null
+    var addCubeOnTop: (() -> Unit)? = null
 }
 fun hudLog(hud: HudState, line: String){
     hud.log.value = (hud.log.value + line).takeLast(20)
@@ -892,7 +894,34 @@ fun main() = KoolApplication {
             }
         }
         rotatableCube.transform.translate(0f, 0f, 3f)
-        hud.cubeToRotate = rotatableCube
+        val cubeStack = mutableListOf(rotatableCube)
+
+        hud.rotateCubeLeft = {
+            rotatableCube.transform.rotate((-10f).deg, Vec3f.Y_AXIS)
+            hudLog(hud, "Поворот куба на -10°")
+        }
+        hud.rotateCubeRight = {
+            rotatableCube.transform.rotate(10f.deg, Vec3f.Y_AXIS)
+            hudLog(hud, "Поворот куба на +10°")
+        }
+        hud.addCubeOnTop = {
+            val newCube = addColorMesh {
+                generate {
+                    cube {
+                        colored()
+                    }
+                }
+                shader = KslPbrShader {
+                    color { vertexColor() }
+                    metallic(0f)
+                    roughness(0.25f)
+                }
+            }
+            val topY = cubeStack.size
+            newCube.transform.translate(2f, topY.toFloat(), -2f)
+            cubeStack.add(newCube)
+            hudLog(hud, "Добавлен новый куб сверху (всего: ${cubeStack.size})")
+        }
     }
     addScene {
         setupUiScene(ClearColorLoad)
@@ -1019,37 +1048,13 @@ fun main() = KoolApplication {
                 Row {
                     Button("Вращать влево (-10°)") {
                         modifier.margin(end = 8.dp).onClick {
-                            val cube = hud.cubeToRotate
-                            if (cube != null) {
-                                try {
-                                    val transformField = cube.javaClass.getDeclaredField("transform")
-                                    transformField.isAccessible = true
-                                    val transform = transformField.get(cube)
-                                    val rotateMethod = transform.javaClass.getMethod("rotate", Float::class.java, Vec3f::class.java)
-                                    rotateMethod.invoke(transform, -10f * Math.PI.toFloat() / 180f, Vec3f.Y_AXIS)
-                                    hudLog(hud, "Поворот куба на -10°")
-                                } catch (e: Exception) {
-                                    hudLog(hud, "Ошибка: ${e.message}")
-                                }
-                            }
+                            hud.rotateCubeLeft?.invoke()
                         }
                     }
 
                     Button("Вращать вправо (+10°)") {
                         modifier.margin(end = 8.dp).onClick {
-                            val cube = hud.cubeToRotate
-                            if (cube != null) {
-                                try {
-                                    val transformField = cube.javaClass.getDeclaredField("transform")
-                                    transformField.isAccessible = true
-                                    val transform = transformField.get(cube)
-                                    val rotateMethod = transform.javaClass.getMethod("rotate", Float::class.java, Vec3f::class.java)
-                                    rotateMethod.invoke(transform, 10f * Math.PI.toFloat() / 180f, Vec3f.Y_AXIS)
-                                    hudLog(hud, "Поворот куба на +10°")
-                                } catch (e: Exception) {
-                                    hudLog(hud, "Ошибка: ${e.message}")
-                                }
-                            }
+                            hud.rotateCubeRight?.invoke()
                         }
                     }
                 }
@@ -1059,31 +1064,7 @@ fun main() = KoolApplication {
                 Row {
                     Button("Добавить куб сверху") {
                         modifier.onClick {
-                            val newCube = this@addScene.addColorMesh {
-                                generate {
-                                    cube {
-                                        colored()
-                                    }
-                                }
-                                shader = KslPbrShader {
-                                    color { vertexColor() }
-                                    metallic(0f)
-                                    roughness(0.25f)
-                                }
-                            }
-
-                            if (hud.cubeStack == null) {
-
-                                newCube.transform.translate(2f, 0f, -2f)
-                                hud.cubeStack = mutableListOf(newCube)
-                                hudLog(hud, "Создан первый куб в позиции (2, 0, -2)")
-                            } else {
-                                val currentStack = hud.cubeStack!!
-                                val topY = currentStack.size
-                                newCube.transform.translate(2f, topY.toFloat(), -2f)
-                                currentStack.add(newCube)
-                                hudLog(hud, "Добавлен новый куб сверху (всего: ${currentStack.size})")
-                            }
+                            hud.addCubeOnTop?.invoke()
                         }
                     }
                 }
