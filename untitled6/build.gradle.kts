@@ -1,7 +1,5 @@
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
-
-//import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
-//import kotlin.text.set
+import org.gradle.api.tasks.JavaExec
 
 plugins {
     kotlin("jvm") version "2.2.21"
@@ -34,11 +32,19 @@ tasks.test {
 kotlin {
     jvmToolchain(17)
 }
-//val compileKotlin: KotlinCompile by tasks
-//compileKotlin.compilerOptions {
-//    freeCompilerArgs.set(listOf("-Xnested-type-aliases"))
-//}
 val compileKotlin: KotlinCompile by tasks
 compileKotlin.compilerOptions {
     freeCompilerArgs.set(listOf("-Xnested-type-aliases"))
+}
+
+tasks.register<JavaExec>("countLessonLines") {
+    group = "application"
+    description = "Count lines in a lesson file and print JSON"
+    mainClass.set("lessonLineCounter.MainKt")
+    classpath = sourceSets["main"].runtimeClasspath
+
+    val filePathArg = project.findProperty("filePath")?.toString()
+    if (!filePathArg.isNullOrBlank()) {
+        args(filePathArg)
+    }
 }

@@ -438,7 +438,7 @@ class GameServer {
                 currentAreaId = newAreaId
             )
         }
-    }
+    }//initialPlayer
 
     private suspend fun processCommand(cmd: GameCommand){
         when(cmd){

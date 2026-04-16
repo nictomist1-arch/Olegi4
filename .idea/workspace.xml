@@ -57,6 +57,7 @@
   "keyToString": {
     "Gradle.untitled6 [:lesson10.Gg2Kt.main()].executor": "Run",
     "Gradle.untitled6 [:lesson8.FlowKt.main()].executor": "Run",
+    "Gradle.untitled6 [:lessonLineCounter.MainKt.main()].executor": "Run",
     "Kotlin.MainKt.executor": "Run",
     "ModuleVcsDetector.initialDetectionPerformed": "true",
     "RunOnceActivity.ShowReadmeOnStart": "true",
@@ -65,7 +66,8 @@
     "node.js.selected.package.tslint": "(autodetect)",
     "project.structure.last.edited": "Modules",
     "project.structure.proportion": "0.0",
-    "project.structure.side.proportion": "0.2"
+    "project.structure.side.proportion": "0.2",
+    "settings.editor.selected.configurable": "promo.database"
   }
 }]]></component>
   <component name="RunManager">
