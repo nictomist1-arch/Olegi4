@@ -1,7 +1,6 @@
-package lessonLineCounter
+package lessonLineCounterKT
 
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.nio.file.Files
 import java.nio.file.Path

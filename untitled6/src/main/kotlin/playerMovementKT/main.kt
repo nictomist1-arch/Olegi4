@@ -3,7 +3,7 @@
 // 1.2 - c
 // 1.3 - d
 
-package playerMovement
+package playerMovementKT
 
 import de.fabmax.kool.KoolApplication
 import de.fabmax.kool.addScene
@@ -32,7 +32,6 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.filterIsInstance
-import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 
