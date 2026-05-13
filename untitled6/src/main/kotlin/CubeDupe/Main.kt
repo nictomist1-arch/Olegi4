@@ -99,13 +99,7 @@ class CubeServer(
         _cubes.value = old + cube
         _events.tryEmit(CubeSpawned(cube))
     }
-
-    fun saveNow() {
-        val cubes = _cubes.value
-        saver.save(cubes)
-        _events.tryEmit(CubesSaved(cubes.size, saver.filePath()))
-    }
-
+    
     fun loadNow() {
         val loaded = try {
             saver.load()

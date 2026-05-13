@@ -5,7 +5,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="768f2b06-0e23-4009-821a-d5036a1c7340" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/untitled6/src/main/kotlin/CubeDupe/Main.kt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/untitled6/src/main/kotlin/CubeDupe/Main.kt" beforeDir="false" afterPath="$PROJECT_DIR$/untitled6/src/main/kotlin/CubeDupe/Main.kt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -60,6 +60,7 @@
   </component>
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
+    "Gradle.untitled6 [:CubeDupe.MainKt.main()].executor": "Run",
     "Gradle.untitled6 [:lesson10.Gg2Kt.main()].executor": "Run",
     "Gradle.untitled6 [:lesson8.FlowKt.main()].executor": "Run",
     "Gradle.untitled6 [:lessonLineCounter.MainKt.main()].executor": "Run",
